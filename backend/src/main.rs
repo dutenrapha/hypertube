@@ -1,5 +1,6 @@
-use axum::{Router, routing::get, Json};
+use axum::{routing::get, Json, Router};
 use serde_json::{json, Value};
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 
@@ -9,6 +10,32 @@ async fn health() -> Json<Value> {
 
 #[tokio::main]
 async fn main() {
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    // Retry DB connection until postgres is ready (healthcheck should cover
+    // this, but we add a safety net for edge cases).
+    let pool = loop {
+        match PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+        {
+            Ok(p) => break p,
+            Err(e) => {
+                eprintln!("DB not ready yet ({e}), retrying in 2s…");
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            }
+        }
+    };
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    println!("Migrations applied successfully");
+
     let app = Router::new()
         .route("/health", get(health))
         .layer(CorsLayer::permissive());
