@@ -1,0 +1,64 @@
+{
+  "nav": {
+    "hypertube": "Hypertube",
+    "profile": "Profile",
+    "logout": "Logout"
+  },
+  "login": {
+    "title": "Login",
+    "username": "Username or email",
+    "password": "Password",
+    "submit": "Login",
+    "loading": "Logging in…",
+    "error": "Invalid username or password",
+    "network_error": "Network error. Please try again.",
+    "or": "— or —",
+    "login_42": "Login with 42",
+    "login_google": "Login with Google",
+    "forgot_password": "Forgot your password?",
+    "no_account": "Don't have an account?",
+    "register": "Register"
+  },
+  "register": {
+    "title": "Register"
+  },
+  "profile": {
+    "title": "Edit Profile",
+    "email": "Email",
+    "username": "Username",
+    "first_name": "First Name",
+    "last_name": "Last Name",
+    "new_password": "New Password (leave blank to keep current)",
+    "language": "Preferred Language",
+    "lang_en": "English",
+    "lang_pt": "Português",
+    "profile_picture": "Profile Picture",
+    "current_picture": "Current picture",
+    "save": "Save Changes",
+    "saving": "Saving…",
+    "saved": "Profile updated successfully!",
+    "back": "Back"
+  },
+  "user_profile": {
+    "title": "User Profile",
+    "username": "Username",
+    "first_name": "First Name",
+    "last_name": "Last Name",
+    "language": "Language",
+    "not_found": "User not found."
+  },
+  "forgot_password": {
+    "title": "Forgot Password",
+    "email": "Email",
+    "submit": "Send reset link",
+    "sending": "Sending…",
+    "back": "Back to Login"
+  },
+  "reset_password": {
+    "title": "Reset Password",
+    "new_password": "New password",
+    "confirm_password": "Confirm new password",
+    "submit": "Reset password",
+    "resetting": "Resetting…"
+  }
+}

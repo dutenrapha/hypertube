@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 mod jwt;
 mod routes;
@@ -49,6 +50,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
+        // Serve uploaded profile pictures
+        .nest_service("/uploads", ServeDir::new("/uploads"))
         // Auth
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
@@ -61,8 +64,12 @@ async fn main() {
         // Password reset
         .route("/api/auth/forgot-password", post(routes::password_reset::forgot_password))
         .route("/api/auth/reset-password", post(routes::password_reset::reset_password))
-        // Protected
+        // User profiles
         .route("/api/users", get(routes::users::list_users))
+        .route(
+            "/api/users/:id",
+            get(routes::users::get_user).patch(routes::users::update_user),
+        )
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(CorsLayer::permissive())

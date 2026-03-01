@@ -1,0 +1,64 @@
+{
+  "nav": {
+    "hypertube": "Hypertube",
+    "profile": "Perfil",
+    "logout": "Sair"
+  },
+  "login": {
+    "title": "Entrar",
+    "username": "Usuário ou email",
+    "password": "Senha",
+    "submit": "Entrar",
+    "loading": "Entrando…",
+    "error": "Usuário ou senha inválidos",
+    "network_error": "Erro de rede. Por favor, tente novamente.",
+    "or": "— ou —",
+    "login_42": "Entrar com 42",
+    "login_google": "Entrar com Google",
+    "forgot_password": "Esqueceu sua senha?",
+    "no_account": "Não tem uma conta?",
+    "register": "Cadastrar"
+  },
+  "register": {
+    "title": "Cadastro"
+  },
+  "profile": {
+    "title": "Editar Perfil",
+    "email": "E-mail",
+    "username": "Nome de usuário",
+    "first_name": "Nome",
+    "last_name": "Sobrenome",
+    "new_password": "Nova senha (deixe em branco para manter a atual)",
+    "language": "Idioma preferido",
+    "lang_en": "English",
+    "lang_pt": "Português",
+    "profile_picture": "Foto de perfil",
+    "current_picture": "Foto atual",
+    "save": "Salvar alterações",
+    "saving": "Salvando…",
+    "saved": "Perfil atualizado com sucesso!",
+    "back": "Voltar"
+  },
+  "user_profile": {
+    "title": "Perfil do Usuário",
+    "username": "Nome de usuário",
+    "first_name": "Nome",
+    "last_name": "Sobrenome",
+    "language": "Idioma",
+    "not_found": "Usuário não encontrado."
+  },
+  "forgot_password": {
+    "title": "Esqueci minha senha",
+    "email": "E-mail",
+    "submit": "Enviar link de redefinição",
+    "sending": "Enviando…",
+    "back": "Voltar para o login"
+  },
+  "reset_password": {
+    "title": "Redefinir senha",
+    "new_password": "Nova senha",
+    "confirm_password": "Confirmar nova senha",
+    "submit": "Redefinir senha",
+    "resetting": "Redefinindo…"
+  }
+}
