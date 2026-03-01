@@ -24,6 +24,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def test_docker_compose_build_exits_zero():
     """docker-compose up --build -d terminates with exit code 0."""
+    # Bring down first to avoid docker-compose v1 ContainerConfig recreation bug
+    subprocess.run(
+        ["docker-compose", "down"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     result = subprocess.run(
         ["docker-compose", "up", "--build", "-d"],
         cwd=PROJECT_ROOT,

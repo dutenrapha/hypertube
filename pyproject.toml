@@ -7,6 +7,7 @@ dependencies = [
     "pytest>=8.3",
     "requests>=2.32",
     "psycopg2-binary>=2.9",
+    "pyjwt>=2.9",
 ]
 
 [tool.pytest.ini_options]
@@ -18,4 +19,5 @@ dev = [
     "pytest>=8.3",
     "requests>=2.32",
     "psycopg2-binary>=2.9",
+    "pyjwt>=2.9",
 ]

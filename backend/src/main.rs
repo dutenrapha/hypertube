@@ -1,9 +1,14 @@
-use axum::{extract::DefaultBodyLimit, routing::{get, post}, Json, Router};
+use axum::{
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 
+mod jwt;
 mod routes;
 
 #[derive(Clone)]
@@ -44,9 +49,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
+        // Auth
         .route("/api/auth/register", post(routes::auth::register))
-        // Allow up to 10 MB so we can receive large uploads and enforce 5 MB
-        // per-field limit manually inside the handler.
+        .route("/api/auth/login", post(routes::auth::login))
+        // Protected
+        .route("/api/users", get(routes::users::list_users))
+        // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state);

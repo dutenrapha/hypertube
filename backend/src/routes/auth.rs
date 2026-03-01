@@ -4,10 +4,11 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{jwt, AppState};
 
 const MAX_FILE_SIZE: usize = 5 * 1024 * 1024; // 5 MB
 const BCRYPT_COST: u32 = 12;
@@ -245,4 +246,63 @@ fn is_valid_email(email: &str) -> bool {
     let local = parts.next().unwrap_or("");
     let domain = parts.next().unwrap_or("");
     !local.is_empty() && !domain.is_empty() && domain.contains('.')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct LoginRequest {
+    pub username: String, // accepts username OR email
+    pub password: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct UserForLogin {
+    id: Uuid,
+    username: String,
+    password_hash: Option<String>,
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(body): Json<LoginRequest>,
+) -> ApiResult {
+    let invalid = || {
+        api_err(
+            StatusCode::UNAUTHORIZED,
+            "invalid_credentials",
+            "Invalid username or password",
+        )
+    };
+
+    // Look up by email OR by username in the same query
+    let user = sqlx::query_as::<_, UserForLogin>(
+        "SELECT id, username, password_hash FROM users WHERE email = $1 OR username = $1",
+    )
+    .bind(&body.username)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &e.to_string()))?
+    .ok_or_else(invalid)?;
+
+    // OAuth-only users have no password_hash → same 401
+    let hash = user.password_hash.ok_or_else(invalid)?;
+
+    // Verify bcrypt (CPU-intensive — offload to blocking thread)
+    let password = body.password.clone();
+    let valid = tokio::task::spawn_blocking(move || bcrypt::verify(&password, &hash))
+        .await
+        .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "verify_failed", ""))?
+        .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "verify_failed", ""))?;
+
+    if !valid {
+        return Err(invalid());
+    }
+
+    let token = jwt::create_token(user.id, &user.username)
+        .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "token_failed", ""))?;
+
+    Ok((StatusCode::OK, Json(json!({ "token": token }))))
 }

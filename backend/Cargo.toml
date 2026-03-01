@@ -18,6 +18,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 bcrypt = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 infer = "0.16"
+jsonwebtoken = "9"
 
 [profile.release]
 opt-level = "s"
