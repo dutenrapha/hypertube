@@ -56,6 +56,14 @@ export default function Login() {
           {loading ? 'Logging in…' : 'Login'}
         </button>
       </form>
+
+      <p style={{ marginTop: 16, marginBottom: 8 }}>— or —</p>
+      <p>
+        <a href="/api/auth/oauth/42" style={{ fontWeight: 500 }}>
+          Login with 42
+        </a>
+      </p>
+
       <p>
         Don't have an account? <a href="/register">Register</a>
       </p>

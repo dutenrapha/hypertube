@@ -19,6 +19,8 @@ bcrypt = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 infer = "0.16"
 jsonwebtoken = "9"
+reqwest = { version = "0.12", features = ["json"] }
+urlencoding = "2"
 
 [profile.release]
 opt-level = "s"

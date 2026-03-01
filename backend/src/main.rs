@@ -52,6 +52,9 @@ async fn main() {
         // Auth
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
+        // OAuth2 — 42 School
+        .route("/api/auth/oauth/42", get(routes::oauth42::oauth42_redirect))
+        .route("/api/auth/oauth/42/callback", get(routes::oauth42::oauth42_callback))
         // Protected
         .route("/api/users", get(routes::users::list_users))
         // Allow up to 10 MB globally; file size is enforced per-field in handlers

@@ -33,6 +33,15 @@ services:
       - downloads:/downloads
     restart: unless-stopped
 
+  mock42:
+    build: ./mock_oauth42
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     ports:
@@ -54,7 +63,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
+      - "3000:3000"
     depends_on:
       - backend
 

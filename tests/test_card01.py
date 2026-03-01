@@ -13,7 +13,7 @@ import pytest
 import requests
 
 BACKEND_URL = "http://localhost:8000"
-FRONTEND_URL = "http://localhost:5173"
+FRONTEND_URL = "http://localhost:3000"
 ARIA2C_URL = "http://localhost:6800/jsonrpc"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
