@@ -63,6 +63,11 @@ export default function Login() {
           Login with 42
         </a>
       </p>
+      <p>
+        <a href="/api/auth/oauth/google" style={{ fontWeight: 500 }}>
+          Login with Google
+        </a>
+      </p>
 
       <p>
         Don't have an account? <a href="/register">Register</a>
