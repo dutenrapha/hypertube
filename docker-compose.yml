@@ -49,6 +49,7 @@ services:
         condition: service_healthy
     volumes:
       - downloads:/downloads
+      - uploads:/uploads
 
   frontend:
     build: ./frontend
@@ -60,3 +61,4 @@ services:
 volumes:
   postgres_data:
   downloads:
+  uploads:

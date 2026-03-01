@@ -1,8 +1,15 @@
-use axum::{routing::get, Json, Router};
+use axum::{extract::DefaultBodyLimit, routing::{get, post}, Json, Router};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
+
+mod routes;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db: sqlx::PgPool,
+}
 
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
@@ -10,11 +17,8 @@ async fn health() -> Json<Value> {
 
 #[tokio::main]
 async fn main() {
-    let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    // Retry DB connection until postgres is ready (healthcheck should cover
-    // this, but we add a safety net for edge cases).
     let pool = loop {
         match PgPoolOptions::new()
             .max_connections(5)
@@ -36,9 +40,16 @@ async fn main() {
 
     println!("Migrations applied successfully");
 
+    let state = AppState { db: pool };
+
     let app = Router::new()
         .route("/health", get(health))
-        .layer(CorsLayer::permissive());
+        .route("/api/auth/register", post(routes::auth::register))
+        // Allow up to 10 MB so we can receive large uploads and enforce 5 MB
+        // per-field limit manually inside the handler.
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(CorsLayer::permissive())
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     println!("Backend listening on {addr}");

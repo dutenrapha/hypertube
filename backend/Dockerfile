@@ -24,7 +24,8 @@ FROM debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/* && \
-    groupadd -r app && useradd -r -g app app
+    groupadd -r app && useradd -r -g app app && \
+    mkdir -p /uploads && chown app:app /uploads
 
 WORKDIR /app
 COPY --from=builder /app/target/release/hypertube .
