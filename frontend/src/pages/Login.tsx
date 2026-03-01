@@ -70,6 +70,9 @@ export default function Login() {
       </p>
 
       <p>
+        <a href="/forgot-password">Forgot your password?</a>
+      </p>
+      <p>
         Don't have an account? <a href="/register">Register</a>
       </p>
     </main>

@@ -58,6 +58,9 @@ async fn main() {
         // OAuth2 — Google
         .route("/api/auth/oauth/google", get(routes::oauth_google::oauth_google_redirect))
         .route("/api/auth/oauth/google/callback", get(routes::oauth_google::oauth_google_callback))
+        // Password reset
+        .route("/api/auth/forgot-password", post(routes::password_reset::forgot_password))
+        .route("/api/auth/reset-password", post(routes::password_reset::reset_password))
         // Protected
         .route("/api/users", get(routes::users::list_users))
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
