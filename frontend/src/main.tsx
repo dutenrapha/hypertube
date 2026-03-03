@@ -13,6 +13,7 @@ import ResetPassword from './pages/ResetPassword'
 import Profile from './pages/Profile'
 import UserProfile from './pages/UserProfile'
 import Search from './pages/Search'
+import MovieDetails from './pages/MovieDetails'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/users/:id" element={<UserProfile />} />
+            <Route path="/movies/:id" element={<MovieDetails />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

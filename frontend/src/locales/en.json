@@ -74,5 +74,20 @@
     "loading": "Loading…",
     "watched_badge": "WATCHED",
     "no_results": "No results found."
+  },
+  "movie_details": {
+    "loading": "Loading…",
+    "not_found": "Movie not found.",
+    "back": "Back",
+    "director": "Director",
+    "cast": "Cast",
+    "watch": "Watch",
+    "subtitles": "Subtitles",
+    "video_not_supported": "Your browser does not support the video tag.",
+    "comments": "Comments",
+    "comment_placeholder": "Write a comment…",
+    "submit_comment": "Post comment",
+    "submitting": "Posting…",
+    "no_comments": "No comments yet. Be the first!"
   }
 }

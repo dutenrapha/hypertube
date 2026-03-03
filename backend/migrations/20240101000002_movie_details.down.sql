@@ -1,0 +1,4 @@
+ALTER TABLE movies
+  DROP COLUMN IF EXISTS summary,
+  DROP COLUMN IF EXISTS director,
+  DROP COLUMN IF EXISTS cast_list;

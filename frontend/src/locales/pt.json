@@ -74,5 +74,20 @@
     "loading": "Carregando…",
     "watched_badge": "ASSISTIDO",
     "no_results": "Nenhum resultado encontrado."
+  },
+  "movie_details": {
+    "loading": "Carregando…",
+    "not_found": "Filme não encontrado.",
+    "back": "Voltar",
+    "director": "Diretor",
+    "cast": "Elenco",
+    "watch": "Assistir",
+    "subtitles": "Legendas",
+    "video_not_supported": "Seu navegador não suporta o elemento de vídeo.",
+    "comments": "Comentários",
+    "comment_placeholder": "Escreva um comentário…",
+    "submit_comment": "Comentar",
+    "submitting": "Enviando…",
+    "no_comments": "Nenhum comentário ainda. Seja o primeiro!"
   }
 }

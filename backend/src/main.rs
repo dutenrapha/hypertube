@@ -99,6 +99,12 @@ async fn main() {
         )
         // Search
         .route("/api/search", get(routes::search::search))
+        // Movie details + comments
+        .route("/api/movies/:id", get(routes::movies::get_movie))
+        .route(
+            "/api/movies/:id/comments",
+            get(routes::movies::list_comments).post(routes::movies::create_comment),
+        )
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(CorsLayer::permissive())

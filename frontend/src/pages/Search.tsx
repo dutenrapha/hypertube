@@ -259,6 +259,11 @@ export default function Search() {
         {displayMovies.map(movie => (
           <div
             key={movie.id}
+            onClick={() =>
+              navigate(`/movies/${encodeURIComponent(movie.id)}`, {
+                state: { title: movie.title, year: movie.year, cover_url: movie.cover_url },
+              })
+            }
             style={{
               position: 'relative',
               borderRadius: 8,

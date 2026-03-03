@@ -70,22 +70,6 @@ async fn redis_set(
 
 // ── Archive.org search ────────────────────────────────────────────────────────
 
-async fn fetch_archive_btih(identifier: &str) -> Option<String> {
-    let client = http_client();
-    let url = format!("https://archive.org/metadata/{}/files", identifier);
-    let resp = client.get(&url).send().await.ok()?;
-    let json: Value = resp.json().await.ok()?;
-    let files = json["result"].as_array()?;
-    for file in files {
-        if let Some(btih) = file["btih"].as_str() {
-            if !btih.is_empty() {
-                return Some(btih.to_string());
-            }
-        }
-    }
-    None
-}
-
 /// Escape a single token for Lucene (avoid breaking the query).
 fn lucene_escape_word(word: &str) -> String {
     let s: String = word
@@ -179,40 +163,21 @@ async fn search_archive(query: &str) -> Vec<Movie> {
         })
         .collect();
 
-    let limited: Vec<_> = items.iter().take(ROWS as usize).collect();
-    let btih_futures: Vec<_> = limited
-        .iter()
-        .map(|(id, _, _)| {
-            let id = id.clone();
-            async move { fetch_archive_btih(&id).await }
-        })
-        .collect();
-
-    let btihs: Vec<Option<String>> = futures_util::future::join_all(btih_futures).await;
-
-    limited
-        .iter()
-        .zip(btihs.iter())
-        .map(|((id, title, year), btih)| {
-            let magnet = btih.as_ref().map(|h| {
-                format!(
-                    "magnet:?xt=urn:btih:{}&dn={}&tr=http://bt1.archive.org:6969/announce&ws=https://archive.org/download/{}/",
-                    h,
-                    urlencoding::encode(title),
-                    urlencoding::encode(id)
-                )
-            });
-            Movie {
-                id: id.clone(),
-                title: title.clone(),
-                year: year.clone(),
-                cover_url: Some(format!("https://archive.org/services/img/{}", id)),
-                magnet,
-                source: "archive.org".to_string(),
-                imdb_rating: None,
-                genre: None,
-                watched: false,
-            }
+    // Magnet links are not needed for search display; they are resolved in movie details.
+    // Skip btih lookups to avoid 50+ concurrent HTTP requests that slow down search.
+    items
+        .into_iter()
+        .take(ROWS as usize)
+        .map(|(id, title, year)| Movie {
+            cover_url: Some(format!("https://archive.org/services/img/{}", id)),
+            id,
+            title,
+            year,
+            magnet: None,
+            source: "archive.org".to_string(),
+            imdb_rating: None,
+            genre: None,
+            watched: false,
         })
         .collect()
 }
@@ -446,11 +411,11 @@ pub async fn search(
             movie.genre = genre;
         }
 
-        // Only cache non-empty results so a failed request (e.g. network error) doesn't overwrite good cache
-        if !all.is_empty() {
-            if let Ok(json_str) = serde_json::to_string(&all) {
-                redis_set(&mut conn, &cache_key, &json_str, SEARCH_CACHE_TTL).await;
-            }
+        // Cache results — use a shorter TTL for empty results so transient failures don't
+        // permanently block a query, but still serve subsequent calls from cache (fast).
+        let ttl = if all.is_empty() { 300 } else { SEARCH_CACHE_TTL };
+        if let Ok(json_str) = serde_json::to_string(&all) {
+            redis_set(&mut conn, &cache_key, &json_str, ttl).await;
         }
 
         all
