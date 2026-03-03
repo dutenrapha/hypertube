@@ -8,6 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
+use uuid::Uuid;
 
 use crate::{jwt, AppState};
 
@@ -18,6 +19,8 @@ const HTTP_TIMEOUT: u64 = 10;
 #[derive(Deserialize)]
 pub struct SearchParams {
     q: Option<String>,
+    page: Option<u32>,
+    limit: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -29,6 +32,17 @@ pub struct Movie {
     pub magnet: Option<String>,
     pub source: String,
     pub imdb_rating: Option<String>,
+    pub genre: Option<String>,
+    pub watched: bool,
+}
+
+#[derive(Serialize)]
+pub struct SearchResponse {
+    pub movies: Vec<Movie>,
+    pub page: u32,
+    pub limit: u32,
+    pub total: usize,
+    pub has_next: bool,
 }
 
 fn http_client() -> reqwest::Client {
@@ -72,15 +86,59 @@ async fn fetch_archive_btih(identifier: &str) -> Option<String> {
     None
 }
 
+/// Escape a single token for Lucene (avoid breaking the query).
+fn lucene_escape_word(word: &str) -> String {
+    let s: String = word
+        .chars()
+        .filter(|c| !matches!(c, '\\' | '+' | '-' | '&' | '|' | '!' | '(' | ')' | '{' | '}' | '[' | ']' | '^' | '"' | '~' | '*' | '?' | ':'))
+        .collect();
+    let s = s.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    if s.contains(' ') {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+}
+
+/// Build Archive.org Lucene query for non-empty search.
+/// Uses general metadata search (like the archive.org website): (word1 AND word2 AND ...) AND mediatype:movies.
+/// Avoids leading wildcards (title:*x*) which many Lucene backends reject or don't index well.
+fn archive_search_query(query: &str) -> String {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let words: Vec<String> = trimmed
+        .split_whitespace()
+        .map(|s| lucene_escape_word(s.trim()))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if words.is_empty() {
+        return String::new();
+    }
+    let term_part = if words.len() == 1 {
+        words[0].clone()
+    } else {
+        format!("({})", words.join(" AND "))
+    };
+    format!("{} AND mediatype:movies", term_part)
+}
+
 async fn search_archive(query: &str) -> Vec<Movie> {
     let client = http_client();
 
+    const ROWS: u32 = 50;
     let url = if query.is_empty() {
-        "https://archive.org/advancedsearch.php?q=mediatype%3Amovies&fl[]=identifier,title,year&rows=20&output=json&sort[]=-downloads".to_string()
+        format!("https://archive.org/advancedsearch.php?q=mediatype%3Amovies&fl[]=identifier,title,year&rows={}&output=json&sort[]=-downloads", ROWS)
     } else {
+        let q = archive_search_query(query);
         format!(
-            "https://archive.org/advancedsearch.php?q={}&fl[]=identifier,title,year&rows=20&output=json&mediatype=movies",
-            urlencoding::encode(query)
+            "https://archive.org/advancedsearch.php?q={}&fl[]=identifier,title,year&rows={}&output=json&sort[]=-downloads",
+            urlencoding::encode(&q),
+            ROWS
         )
     };
 
@@ -105,7 +163,6 @@ async fn search_archive(query: &str) -> Vec<Movie> {
         None => return vec![],
     };
 
-    // Extract basic info
     let items: Vec<(String, String, Option<String>)> = docs
         .iter()
         .filter_map(|doc| {
@@ -122,8 +179,7 @@ async fn search_archive(query: &str) -> Vec<Movie> {
         })
         .collect();
 
-    // Fetch btih for each item in parallel (limit to 10 to avoid overloading)
-    let limited: Vec<_> = items.iter().take(10).collect();
+    let limited: Vec<_> = items.iter().take(ROWS as usize).collect();
     let btih_futures: Vec<_> = limited
         .iter()
         .map(|(id, _, _)| {
@@ -154,6 +210,8 @@ async fn search_archive(query: &str) -> Vec<Movie> {
                 magnet,
                 source: "archive.org".to_string(),
                 imdb_rating: None,
+                genre: None,
+                watched: false,
             }
         })
         .collect()
@@ -175,7 +233,6 @@ fn parse_pdt_html(html: &str, query: &str) -> Vec<Movie> {
         .filter_map(|cap| {
             let movie_id = cap.get(1)?.as_str().to_string();
             let raw_title = cap.get(2)?.as_str().trim().to_string();
-            // Filter HTML entities and short titles
             if raw_title.len() < 2 || raw_title.contains('<') {
                 return None;
             }
@@ -198,6 +255,8 @@ fn parse_pdt_html(html: &str, query: &str) -> Vec<Movie> {
             )),
             source: "publicdomaintorrents.info".to_string(),
             imdb_rating: None,
+            genre: None,
+            watched: false,
         })
         .collect()
 }
@@ -205,7 +264,6 @@ fn parse_pdt_html(html: &str, query: &str) -> Vec<Movie> {
 async fn search_publicdomaintorrents(query: &str) -> Vec<Movie> {
     let client = http_client();
 
-    // Capitalise first letter for category match (e.g. "horror" → "Horror")
     let cat_query = {
         let mut c = query.chars();
         match c.next() {
@@ -221,20 +279,17 @@ async fn search_publicdomaintorrents(query: &str) -> Vec<Movie> {
     let all_url =
         "https://www.publicdomaintorrents.info/nshowcat.html?category=ALL".to_string();
 
-    // Fetch category page and ALL page in parallel
     let (cat_resp, all_resp) = tokio::join!(
         client.get(&cat_url).send(),
         client.get(&all_url).send()
     );
 
-    // Try category-based results first
     let mut movies: Vec<Movie> = vec![];
 
     if let Ok(resp) = cat_resp {
         if resp.status().is_success() {
             if let Ok(html) = resp.text().await {
-                // Pass empty query so all results from the category page are included
-                let cat_movies = parse_pdt_html(&html, "");
+                let cat_movies = parse_pdt_html(&html, query);
                 if !cat_movies.is_empty() {
                     movies.extend(cat_movies.into_iter().take(5));
                     return movies;
@@ -243,7 +298,6 @@ async fn search_publicdomaintorrents(query: &str) -> Vec<Movie> {
         }
     }
 
-    // Fall back to ALL page filtered by title
     if let Ok(resp) = all_resp {
         if let Ok(html) = resp.text().await {
             let filtered = parse_pdt_html(&html, query);
@@ -252,7 +306,6 @@ async fn search_publicdomaintorrents(query: &str) -> Vec<Movie> {
                 return movies;
             }
 
-            // Last resort: return top 5 from ALL listing so PDT always contributes
             let fallback = parse_pdt_html(&html, "");
             movies.extend(fallback.into_iter().take(5));
         }
@@ -262,19 +315,30 @@ async fn search_publicdomaintorrents(query: &str) -> Vec<Movie> {
 }
 
 // ── OMDb enrichment ───────────────────────────────────────────────────────────
+// Returns (imdb_rating, genre). Cache key uses "omdb2:" prefix to avoid
+// conflicts with the old "omdb:" format that stored a plain string.
 
-async fn get_omdb_rating(
+async fn get_omdb_data(
     conn: &mut redis::aio::ConnectionManager,
     title: &str,
-) -> Option<String> {
+) -> (Option<String>, Option<String>) {
     let api_key = std::env::var("OMDB_API_KEY").unwrap_or_default();
     if api_key.is_empty() {
-        return None;
+        return (None, None);
     }
 
-    let cache_key = format!("omdb:{}", title.to_lowercase());
+    let cache_key = format!("omdb2:{}", title.to_lowercase());
     if let Some(cached) = redis_get(conn, &cache_key).await {
-        return if cached == "N/A" { None } else { Some(cached) };
+        if let Ok(obj) = serde_json::from_str::<Value>(&cached) {
+            let rating = obj["rating"].as_str()
+                .filter(|r| *r != "N/A")
+                .map(|r| r.to_string());
+            let genre = obj["genre"].as_str()
+                .filter(|g| *g != "N/A")
+                .map(|g| g.to_string());
+            return (rating, genre);
+        }
+        return (None, None);
     }
 
     let url = format!(
@@ -284,21 +348,27 @@ async fn get_omdb_rating(
     );
 
     let client = http_client();
-    let json: Value = match client.get(&url).send().await {
+    let resp: Value = match client.get(&url).send().await {
         Ok(r) => r.json().await.unwrap_or(json!({})),
-        Err(_) => return None,
+        Err(_) => return (None, None),
     };
 
-    let rating = json["imdbRating"]
+    let rating = resp["imdbRating"]
         .as_str()
         .filter(|r| *r != "N/A")
         .map(|r| r.to_string());
+    let genre = resp["Genre"]
+        .as_str()
+        .filter(|g| *g != "N/A")
+        .map(|g| g.to_string());
 
-    // Cache even N/A results to avoid repeated requests
-    let cache_value = rating.clone().unwrap_or_else(|| "N/A".to_string());
-    redis_set(conn, &cache_key, &cache_value, OMDB_CACHE_TTL).await;
+    let cache_value = json!({
+        "rating": rating.clone().unwrap_or_else(|| "N/A".to_string()),
+        "genre":  genre.clone().unwrap_or_else(|| "N/A".to_string()),
+    });
+    redis_set(conn, &cache_key, &cache_value.to_string(), OMDB_CACHE_TTL).await;
 
-    rating
+    (rating, genre)
 }
 
 // ── GET /api/search ───────────────────────────────────────────────────────────
@@ -308,40 +378,124 @@ pub async fn search(
     Query(params): Query<SearchParams>,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    jwt::verify_from_headers(&headers)?;
+    let claims = jwt::verify_from_headers(&headers)?;
 
     let query = params.q.unwrap_or_default();
     let query = query.trim().to_string();
+    let page  = params.page.unwrap_or(1).max(1);
+    let limit = params.limit.unwrap_or(20).min(50).max(1);
+
+    eprintln!("[search] request q={:?} page={} limit={}", query, page, limit);
 
     let mut conn = state.redis.clone();
 
-    // Check cache
+    // Full-list cache (not user-specific — watched is injected later)
     let cache_key = format!("search:{}", query);
-    if let Some(cached) = redis_get(&mut conn, &cache_key).await {
-        if let Ok(movies) = serde_json::from_str::<Vec<Movie>>(&cached) {
-            return Ok(Json(json!(movies)));
+    let mut movies: Vec<Movie> = if let Some(cached) = redis_get(&mut conn, &cache_key).await {
+        let parsed: Vec<Movie> = serde_json::from_str(&cached).unwrap_or_default();
+        eprintln!("[search] cache HIT for q={:?} -> {} movies", query, parsed.len());
+        parsed
+    } else {
+        eprintln!("[search] cache MISS for q={:?}, calling archive + pdt", query);
+        let (archive_movies, pdt_movies) = tokio::join!(
+            search_archive(&query),
+            search_publicdomaintorrents(&query)
+        );
+
+        eprintln!(
+            "[search] archive returned {} movies, pdt returned {} movies",
+            archive_movies.len(),
+            pdt_movies.len()
+        );
+
+        let mut all: Vec<Movie> = Vec::new();
+        all.extend(archive_movies);
+        all.extend(pdt_movies);
+
+        // Fallback: when query is non-empty and external APIs return 0, fetch popular list
+        // and filter by title (so e.g. "bananas" matches "About Bananas")
+        if !query.is_empty() && all.is_empty() {
+            eprintln!("[search] fallback: fetching popular list and filtering by title");
+            let empty_key = "search:".to_string();
+            let popular: Vec<Movie> = if let Some(cached) = redis_get(&mut conn, &empty_key).await {
+                serde_json::from_str(&cached).unwrap_or_default()
+            } else {
+                let (arch, pdt) = tokio::join!(search_archive(""), search_publicdomaintorrents(""));
+                let mut list: Vec<Movie> = Vec::new();
+                list.extend(arch);
+                list.extend(pdt);
+                if !list.is_empty() {
+                    if let Ok(s) = serde_json::to_string(&list) {
+                        redis_set(&mut conn, &empty_key, &s, SEARCH_CACHE_TTL).await;
+                    }
+                }
+                list
+            };
+            let q_lower = query.to_lowercase();
+            all = popular
+                .into_iter()
+                .filter(|m| m.title.to_lowercase().contains(&q_lower))
+                .collect();
+            eprintln!("[search] fallback: {} movies after filtering by title", all.len());
+        }
+
+        // Enrich with OMDb data (rating + genre)
+        for movie in &mut all {
+            let (rating, genre) = get_omdb_data(&mut conn, &movie.title).await;
+            movie.imdb_rating = rating;
+            movie.genre = genre;
+        }
+
+        // Only cache non-empty results so a failed request (e.g. network error) doesn't overwrite good cache
+        if !all.is_empty() {
+            if let Ok(json_str) = serde_json::to_string(&all) {
+                redis_set(&mut conn, &cache_key, &json_str, SEARCH_CACHE_TTL).await;
+            }
+        }
+
+        all
+    };
+
+    // Inject watched status per user (never cached)
+    if let Ok(user_uuid) = claims.user_id.parse::<Uuid>() {
+        let watched_titles: Vec<String> = sqlx::query_scalar(
+            "SELECT m.title FROM watched_movies wm \
+             JOIN movies m ON m.id = wm.movie_id \
+             WHERE wm.user_id = $1",
+        )
+        .bind(user_uuid)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        let watched_set: std::collections::HashSet<String> = watched_titles
+            .into_iter()
+            .map(|t| t.to_lowercase())
+            .collect();
+
+        for movie in &mut movies {
+            movie.watched = watched_set.contains(&movie.title.to_lowercase());
         }
     }
 
-    // Fetch from both sources in parallel
-    let (archive_movies, pdt_movies) = tokio::join!(
-        search_archive(&query),
-        search_publicdomaintorrents(&query)
+    let total  = movies.len();
+    let offset = ((page - 1) * limit) as usize;
+    let page_movies: Vec<Movie> = movies.into_iter().skip(offset).take(limit as usize).collect();
+    let has_next = offset + page_movies.len() < total;
+
+    eprintln!(
+        "[search] response total={} offset={} returning {} movies has_next={}",
+        total,
+        offset,
+        page_movies.len(),
+        has_next
     );
 
-    let mut movies: Vec<Movie> = Vec::new();
-    movies.extend(archive_movies);
-    movies.extend(pdt_movies);
-
-    // Enrich with OMDb ratings (sequentially to avoid hammering the API)
-    for movie in &mut movies {
-        movie.imdb_rating = get_omdb_rating(&mut conn, &movie.title).await;
-    }
-
-    // Cache the combined results
-    if let Ok(json_str) = serde_json::to_string(&movies) {
-        redis_set(&mut conn, &cache_key, &json_str, SEARCH_CACHE_TTL).await;
-    }
-
-    Ok(Json(json!(movies)))
+    Ok(Json(json!(SearchResponse {
+        movies: page_movies,
+        page,
+        limit,
+        total,
+        has_next,
+    })))
 }

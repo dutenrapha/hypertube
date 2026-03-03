@@ -1,6 +1,7 @@
 {
   "nav": {
     "hypertube": "Hypertube",
+    "library": "Library",
     "profile": "Profile",
     "logout": "Logout"
   },
@@ -60,5 +61,18 @@
     "confirm_password": "Confirm new password",
     "submit": "Reset password",
     "resetting": "Resetting…"
+  },
+  "search": {
+    "button": "Search",
+    "placeholder": "Search movies…",
+    "sort_rating": "Rating (highest)",
+    "sort_year": "Year (most recent)",
+    "sort_name": "Name (A–Z)",
+    "all_genres": "All genres",
+    "year_from": "Year from",
+    "year_to": "Year to",
+    "loading": "Loading…",
+    "watched_badge": "WATCHED",
+    "no_results": "No results found."
   }
 }

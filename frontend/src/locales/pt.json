@@ -1,6 +1,7 @@
 {
   "nav": {
     "hypertube": "Hypertube",
+    "library": "Biblioteca",
     "profile": "Perfil",
     "logout": "Sair"
   },
@@ -60,5 +61,18 @@
     "confirm_password": "Confirmar nova senha",
     "submit": "Redefinir senha",
     "resetting": "Redefinindo…"
+  },
+  "search": {
+    "button": "Buscar",
+    "placeholder": "Buscar filmes…",
+    "sort_rating": "Avaliação (maior)",
+    "sort_year": "Ano (mais recente)",
+    "sort_name": "Nome (A–Z)",
+    "all_genres": "Todos os gêneros",
+    "year_from": "Ano inicial",
+    "year_to": "Ano final",
+    "loading": "Carregando…",
+    "watched_badge": "ASSISTIDO",
+    "no_results": "Nenhum resultado encontrado."
   }
 }

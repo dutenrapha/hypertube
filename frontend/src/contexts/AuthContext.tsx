@@ -10,6 +10,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
+const TOKEN_KEY = 'hypertube_token'
 
 function parseJwtPayload(token: string): { user_id?: string; username?: string } {
   try {
@@ -21,23 +22,37 @@ function parseJwtPayload(token: string): { user_id?: string; username?: string }
   }
 }
 
+function readStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [username, setUsername] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(() => readStoredToken())
+  const payload = token ? parseJwtPayload(token) : {}
+  const userId = payload.user_id ?? null
+  const username = payload.username ?? null
   const navigate = useNavigate()
 
   function login(t: string) {
-    const payload = parseJwtPayload(t)
+    try {
+      localStorage.setItem(TOKEN_KEY, t)
+    } catch {
+      // ignore
+    }
     setToken(t)
-    setUserId(payload.user_id ?? null)
-    setUsername(payload.username ?? null)
   }
 
   function logout() {
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+    } catch {
+      // ignore
+    }
     setToken(null)
-    setUserId(null)
-    setUsername(null)
     navigate('/login')
   }
 

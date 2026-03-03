@@ -28,6 +28,19 @@ export function Header() {
       </a>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <button
+          onClick={() => navigate('/')}
+          style={{
+            color: 'white',
+            background: 'transparent',
+            border: '1px solid white',
+            padding: '6px 14px',
+            cursor: 'pointer',
+            borderRadius: 4,
+          }}
+        >
+          {t('nav.library')}
+        </button>
+        <button
           onClick={() => navigate('/profile')}
           style={{
             color: 'white',
