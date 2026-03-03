@@ -33,11 +33,10 @@ pub async fn get_user(
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
 ) -> ApiResult {
-    let claims = jwt::verify_from_headers(&headers)?;
-    let is_own = claims.user_id == id.to_string();
+    jwt::verify_from_headers(&headers)?;
 
     let row = sqlx::query(
-        "SELECT id, username, first_name, last_name, profile_picture_url, preferred_language, email \
+        "SELECT id, username, first_name, last_name, profile_picture_url, preferred_language \
          FROM users WHERE id = $1",
     )
     .bind(id)
@@ -46,18 +45,14 @@ pub async fn get_user(
     .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "db_error", ""))?
     .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "not_found", "User not found"))?;
 
-    let mut body = json!({
+    Ok((StatusCode::OK, Json(json!({
         "id":                  row.try_get::<Uuid, _>("id").unwrap().to_string(),
         "username":            row.try_get::<String, _>("username").unwrap(),
         "first_name":          row.try_get::<String, _>("first_name").unwrap(),
         "last_name":           row.try_get::<String, _>("last_name").unwrap(),
         "profile_picture_url": row.try_get::<Option<String>, _>("profile_picture_url").unwrap(),
         "preferred_language":  row.try_get::<String, _>("preferred_language").unwrap(),
-    });
-    if is_own {
-        body["email"] = json!(row.try_get::<Option<String>, _>("email").unwrap());
-    }
-    Ok((StatusCode::OK, Json(body)))
+    }))))
 }
 
 // ── PATCH /api/users/:id ──────────────────────────────────────────────────────
@@ -269,7 +264,7 @@ pub async fn update_user(
             updated_at          = NOW()
            WHERE id = $8
            RETURNING id, username, first_name, last_name,
-                     profile_picture_url, preferred_language, email"#,
+                     profile_picture_url, preferred_language"#,
     )
     .bind(email)
     .bind(username)
@@ -311,7 +306,6 @@ pub async fn update_user(
         StatusCode::OK,
         Json(json!({
             "id":                  updated.try_get::<Uuid, _>("id").unwrap().to_string(),
-            "email":               updated.try_get::<Option<String>, _>("email").unwrap(),
             "username":            updated.try_get::<String, _>("username").unwrap(),
             "first_name":          updated.try_get::<String, _>("first_name").unwrap(),
             "last_name":           updated.try_get::<String, _>("last_name").unwrap(),

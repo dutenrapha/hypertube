@@ -15,6 +15,7 @@ mod routes;
 #[derive(Clone)]
 pub struct AppState {
     pub db: sqlx::PgPool,
+    pub redis: redis::aio::ConnectionManager,
 }
 
 async fn health() -> Json<Value> {
@@ -24,6 +25,8 @@ async fn health() -> Json<Value> {
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".to_string());
 
     let pool = loop {
         match PgPoolOptions::new()
@@ -39,6 +42,12 @@ async fn main() {
         }
     };
 
+    let redis_client =
+        redis::Client::open(redis_url).expect("Failed to open Redis client");
+    let redis_manager = redis::aio::ConnectionManager::new(redis_client)
+        .await
+        .expect("Failed to connect to Redis");
+
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
@@ -46,7 +55,10 @@ async fn main() {
 
     println!("Migrations applied successfully");
 
-    let state = AppState { db: pool };
+    let state = AppState {
+        db: pool,
+        redis: redis_manager,
+    };
 
     let app = Router::new()
         .route("/health", get(health))
@@ -57,19 +69,36 @@ async fn main() {
         .route("/api/auth/login", post(routes::auth::login))
         // OAuth2 — 42 School
         .route("/api/auth/oauth/42", get(routes::oauth42::oauth42_redirect))
-        .route("/api/auth/oauth/42/callback", get(routes::oauth42::oauth42_callback))
+        .route(
+            "/api/auth/oauth/42/callback",
+            get(routes::oauth42::oauth42_callback),
+        )
         // OAuth2 — Google
-        .route("/api/auth/oauth/google", get(routes::oauth_google::oauth_google_redirect))
-        .route("/api/auth/oauth/google/callback", get(routes::oauth_google::oauth_google_callback))
+        .route(
+            "/api/auth/oauth/google",
+            get(routes::oauth_google::oauth_google_redirect),
+        )
+        .route(
+            "/api/auth/oauth/google/callback",
+            get(routes::oauth_google::oauth_google_callback),
+        )
         // Password reset
-        .route("/api/auth/forgot-password", post(routes::password_reset::forgot_password))
-        .route("/api/auth/reset-password", post(routes::password_reset::reset_password))
+        .route(
+            "/api/auth/forgot-password",
+            post(routes::password_reset::forgot_password),
+        )
+        .route(
+            "/api/auth/reset-password",
+            post(routes::password_reset::reset_password),
+        )
         // User profiles
         .route("/api/users", get(routes::users::list_users))
         .route(
             "/api/users/:id",
             get(routes::users::get_user).patch(routes::users::update_user),
         )
+        // Search
+        .route("/api/search", get(routes::search::search))
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(CorsLayer::permissive())
