@@ -105,6 +105,8 @@ async fn main() {
         .route("/health", get(health))
         // Serve uploaded profile pictures
         .nest_service("/uploads", ServeDir::new("/uploads"))
+        // Serve subtitle files
+        .nest_service("/subtitles", ServeDir::new("/downloads/subtitles"))
         // Auth
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
@@ -142,6 +144,9 @@ async fn main() {
         .route("/api/search", get(routes::search::search))
         // Movie details + comments
         .route("/api/movies/:id", get(routes::movies::get_movie))
+        .route("/api/subtitles/empty.vtt", get(routes::subtitles::empty_subtitle))
+        .route("/api/subtitles/proxy", get(routes::subtitles::proxy_subtitle))
+        .route("/api/movies/:id/subtitles", get(routes::subtitles::get_subtitles))
         .route(
             "/api/movies/:id/comments",
             get(routes::movies::list_comments).post(routes::movies::create_comment),

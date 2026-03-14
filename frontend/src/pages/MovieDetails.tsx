@@ -49,6 +49,15 @@ export default function MovieDetails() {
   const [streamStarting, setStreamStarting] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Subtitles fetched from OpenSubtitles
+  const [subtitles, setSubtitles] = useState<Array<{ lang: string; url: string }>>([])
+  const subtitlesFetchedRef = useRef(false)
+
+  // Video remount key — incremented when subtitles arrive so <track> elements are present from mount
+  const [videoKey, setVideoKey] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const savedTimeRef = useRef(0)
+
   // State passed from Search
   const passedState = (location.state as {
     title?: string
@@ -88,6 +97,27 @@ export default function MovieDetails() {
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, token])
+
+  // Fetch subtitles once the movie is loaded
+  useEffect(() => {
+    if (!movie || !token || !id || subtitlesFetchedRef.current) return
+    subtitlesFetchedRef.current = true
+    fetch(`/api/movies/${encodeURIComponent(id)}/subtitles`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Array<{ lang: string; url: string }>) => {
+        const subs = data ?? []
+        if (subs.length > 0) {
+          savedTimeRef.current = videoRef.current?.currentTime ?? 0
+          setSubtitles(subs)
+          setVideoKey(k => k + 1)
+        } else {
+          setSubtitles(subs)
+        }
+      })
+      .catch(() => {})
+  }, [movie, token, id])
 
   // Stop polling when component unmounts
   useEffect(() => {
@@ -214,6 +244,15 @@ export default function MovieDetails() {
 
   const streamUrl = `/api/movies/${encodeURIComponent(id ?? '')}/stream`
 
+  // Subtitle track src: proxy external URLs (e.g. archive.org) to avoid CORS
+  const subtitleTrackSrc = (url: string) =>
+    url.startsWith('http://') || url.startsWith('https://')
+      ? `/api/subtitles/proxy?url=${encodeURIComponent(url)}`
+      : url
+
+  // Placeholder track URL (backend serves minimal empty SRT) so the CC button always appears
+  const placeholderTrackSrc = '/api/subtitles/empty.vtt'
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f0f1a', color: 'white' }}>
       {/* Back button */}
@@ -283,11 +322,19 @@ export default function MovieDetails() {
         {/* Video player — shown when ready */}
         {streamStatus === 'ready' && (
           <video
+            key={`player-${videoKey}`}
+            ref={videoRef}
             controls
             autoPlay
             data-testid="stream-player"
             style={{ width: '100%', maxWidth: 900, borderRadius: 8, backgroundColor: '#000', display: 'block', marginBottom: 16 }}
             crossOrigin="anonymous"
+            onCanPlay={() => {
+              if (savedTimeRef.current > 0 && videoRef.current) {
+                videoRef.current.currentTime = savedTimeRef.current
+                savedTimeRef.current = 0
+              }
+            }}
           >
             <source
               src={`${streamUrl}?t=${Date.now()}`}
@@ -296,8 +343,14 @@ export default function MovieDetails() {
               }
             />
             {movie.available_subtitles.map((sub, i) => (
-              <track key={i} kind="subtitles" src={sub} />
+              <track key={`arch-${i}`} kind="subtitles" src={subtitleTrackSrc(sub)} srcLang="en" label="EN" default={i === 0} />
             ))}
+            {subtitles.map((sub, i) => (
+              <track key={`os-${i}`} kind="subtitles" src={sub.url} srcLang={sub.lang} label={sub.lang.toUpperCase()} default={movie.available_subtitles.length === 0 && i === 0} data-testid="subtitle-track" />
+            ))}
+            {movie.available_subtitles.length === 0 && subtitles.length === 0 && (
+              <track kind="subtitles" src={placeholderTrackSrc} label="Off" default />
+            )}
             {t('movie_details.video_not_supported')}
           </video>
         )}
@@ -368,16 +421,30 @@ export default function MovieDetails() {
         {/* Fallback: archive.org video via backend proxy (avoids CORS) */}
         {streamStatus === 'not_started' && !magnet && movie.video_url && (
           <video
+            key={`archive-${videoKey}`}
+            ref={videoRef}
             controls
             style={{ width: '100%', maxWidth: 900, borderRadius: 8, backgroundColor: '#000' }}
+            onCanPlay={() => {
+              if (savedTimeRef.current > 0 && videoRef.current) {
+                videoRef.current.currentTime = savedTimeRef.current
+                savedTimeRef.current = 0
+              }
+            }}
           >
             <source
               src={`/api/movies/${encodeURIComponent(id ?? '')}/stream/archive?token=${encodeURIComponent(token ?? '')}`}
               type="video/mp4"
             />
             {movie.available_subtitles.map((sub, i) => (
-              <track key={i} kind="subtitles" src={sub} />
+              <track key={`arch-${i}`} kind="subtitles" src={subtitleTrackSrc(sub)} srcLang="en" label="EN" default={i === 0} />
             ))}
+            {subtitles.map((sub, i) => (
+              <track key={`os-${i}`} kind="subtitles" src={sub.url} srcLang={sub.lang} label={sub.lang.toUpperCase()} default={movie.available_subtitles.length === 0 && i === 0} data-testid="subtitle-track" />
+            ))}
+            {movie.available_subtitles.length === 0 && subtitles.length === 0 && (
+              <track kind="subtitles" src={placeholderTrackSrc} label="Off" default />
+            )}
             {t('movie_details.video_not_supported')}
           </video>
         )}
