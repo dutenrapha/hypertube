@@ -28,7 +28,7 @@ interface Comment {
   profile_picture_url: string | null
 }
 
-type StreamStatus = 'not_started' | 'downloading' | 'ready'
+type StreamStatus = 'not_started' | 'downloading' | 'converting' | 'ready'
 
 export default function MovieDetails() {
   const { id } = useParams<{ id: string }>()
@@ -113,6 +113,8 @@ export default function MovieDetails() {
             clearInterval(pollIntervalRef.current)
             pollIntervalRef.current = null
           }
+        } else if (data.status === 'converting') {
+          setStreamStatus('converting')
         } else if (data.status === 'not_started') {
           setStreamStatus('not_started')
           if (pollIntervalRef.current) {
@@ -149,6 +151,9 @@ export default function MovieDetails() {
         const data = await resp.json()
         if (data.status === 'ready') {
           setStreamStatus('ready')
+        } else if (data.status === 'converting') {
+          setStreamStatus('converting')
+          pollStatus()
         } else {
           setStreamStatus('downloading')
           pollStatus()
@@ -295,6 +300,27 @@ export default function MovieDetails() {
             ))}
             {t('movie_details.video_not_supported')}
           </video>
+        )}
+
+        {/* Converting indicator — shown while FFmpeg converts MKV→MP4 */}
+        {streamStatus === 'converting' && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ margin: '0 0 8px', color: '#aaa', fontSize: 14 }}>
+              {t('movie_details.converting')}
+            </p>
+            <div style={{ width: '100%', maxWidth: 500, height: 8, backgroundColor: '#333', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                data-testid="convert-progress"
+                style={{
+                  height: '100%',
+                  width: '100%',
+                  background: 'linear-gradient(90deg, #7c8cff 0%, #ff8c7c 100%)',
+                  borderRadius: 4,
+                  animation: 'pulse 1.5s ease-in-out infinite',
+                }}
+              />
+            </div>
+          </div>
         )}
 
         {/* Progress bar — shown while downloading */}

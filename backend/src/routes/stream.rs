@@ -54,6 +54,78 @@ fn proxy_http_client() -> reqwest::Client {
         .unwrap_or_default()
 }
 
+fn is_native_format(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.ends_with(".mp4") || lower.ends_with(".webm")
+}
+
+fn mp4_output_path(input_path: &str) -> String {
+    if let Some(dot_pos) = input_path.rfind('.') {
+        format!("{}.mp4", &input_path[..dot_pos])
+    } else {
+        format!("{}.mp4", input_path)
+    }
+}
+
+/// Atomically claim conversion: sets is_converting = TRUE only if it was FALSE.
+/// Returns true if we successfully claimed the conversion slot.
+async fn try_claim_conversion(db: &sqlx::PgPool, movie_id: Uuid) -> bool {
+    sqlx::query(
+        "UPDATE movies SET is_converting = TRUE \
+         WHERE id = $1 AND is_converting = FALSE",
+    )
+    .bind(movie_id)
+    .execute(db)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
+}
+
+/// Spawn FFmpeg conversion in the background.
+/// On success: update file_path to .mp4 and clear is_converting.
+/// On failure: clear is_converting.
+fn trigger_ffmpeg_conversion(db: sqlx::PgPool, movie_id: Uuid, input_path: String) {
+    tokio::spawn(async move {
+        let output_path = mp4_output_path(&input_path);
+        let result = tokio::process::Command::new("ffmpeg")
+            .args([
+                "-i",
+                &input_path,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "faststart",
+                "-y",
+                &output_path,
+            ])
+            .status()
+            .await;
+
+        match result {
+            Ok(s) if s.success() => {
+                let _ = sqlx::query(
+                    "UPDATE movies SET file_path = $1, is_converting = FALSE, downloaded_at = NOW() \
+                     WHERE id = $2",
+                )
+                .bind(&output_path)
+                .bind(movie_id)
+                .execute(&db)
+                .await;
+            }
+            _ => {
+                let _ = sqlx::query(
+                    "UPDATE movies SET is_converting = FALSE WHERE id = $1",
+                )
+                .bind(movie_id)
+                .execute(&db)
+                .await;
+            }
+        }
+    });
+}
+
 async fn aria2_add_uri(magnet: &str) -> Option<String> {
     let token = format!("token:{}", aria2_secret());
     let body = json!({
@@ -169,7 +241,7 @@ pub async fn start_stream(
         .map_err(|_| (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid_user"}))))?;
 
     let row = sqlx::query(
-        "SELECT id, file_path, aria2_gid FROM movies WHERE imdb_id = $1",
+        "SELECT id, file_path, aria2_gid, is_converting FROM movies WHERE imdb_id = $1",
     )
     .bind(&external_id)
     .fetch_optional(&state.db)
@@ -180,6 +252,7 @@ pub async fn start_stream(
     let movie_id: Uuid = row.try_get("id").unwrap();
     let file_path: Option<String> = row.try_get("file_path").unwrap_or(None);
     let aria2_gid: Option<String> = row.try_get("aria2_gid").unwrap_or(None);
+    let is_converting: bool = row.try_get("is_converting").unwrap_or(false);
 
     let magnet = body.magnet.trim().to_string();
 
@@ -194,14 +267,49 @@ pub async fn start_stream(
         .await;
     }
 
-    // File already downloaded — stream immediately
+    // Conversion in progress
+    if is_converting {
+        let _ = upsert_watched(&state.db, user_id, movie_id).await;
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"status": "converting", "gid": aria2_gid})),
+        ));
+    }
+
+    // File already downloaded
     if let Some(ref fp) = file_path {
         if tokio::fs::metadata(fp).await.is_ok() {
-            let _ = upsert_watched(&state.db, user_id, movie_id).await;
-            return Ok((
-                StatusCode::ACCEPTED,
-                Json(json!({"status": "ready", "gid": aria2_gid})),
-            ));
+            if is_native_format(fp) {
+                let _ = upsert_watched(&state.db, user_id, movie_id).await;
+                return Ok((
+                    StatusCode::ACCEPTED,
+                    Json(json!({"status": "ready", "gid": aria2_gid})),
+                ));
+            } else {
+                // Non-native: check for converted mp4
+                let mp4_path = mp4_output_path(fp);
+                if tokio::fs::metadata(&mp4_path).await.is_ok() {
+                    let _ = sqlx::query("UPDATE movies SET file_path = $1 WHERE id = $2")
+                        .bind(&mp4_path)
+                        .bind(movie_id)
+                        .execute(&state.db)
+                        .await;
+                    let _ = upsert_watched(&state.db, user_id, movie_id).await;
+                    return Ok((
+                        StatusCode::ACCEPTED,
+                        Json(json!({"status": "ready", "gid": aria2_gid})),
+                    ));
+                } else {
+                    if try_claim_conversion(&state.db, movie_id).await {
+                        trigger_ffmpeg_conversion(state.db.clone(), movie_id, fp.clone());
+                    }
+                    let _ = upsert_watched(&state.db, user_id, movie_id).await;
+                    return Ok((
+                        StatusCode::ACCEPTED,
+                        Json(json!({"status": "converting", "gid": aria2_gid})),
+                    ));
+                }
+            }
         }
     }
 
@@ -254,7 +362,7 @@ pub async fn stream_status(
     jwt::verify_from_headers(&headers)?;
 
     let row = sqlx::query(
-        "SELECT id, file_path, aria2_gid FROM movies WHERE imdb_id = $1",
+        "SELECT id, file_path, aria2_gid, is_converting FROM movies WHERE imdb_id = $1",
     )
     .bind(&external_id)
     .fetch_optional(&state.db)
@@ -265,15 +373,51 @@ pub async fn stream_status(
     let movie_id: Uuid = row.try_get("id").unwrap();
     let file_path: Option<String> = row.try_get("file_path").unwrap_or(None);
     let aria2_gid: Option<String> = row.try_get("aria2_gid").unwrap_or(None);
+    let is_converting: bool = row.try_get("is_converting").unwrap_or(false);
+
+    // Conversion in progress
+    if is_converting {
+        return Ok(Json(json!({
+            "status": "converting",
+            "progress": 100,
+            "file_path": null
+        })));
+    }
 
     // File already on disk
     if let Some(ref fp) = file_path {
         if tokio::fs::metadata(fp).await.is_ok() {
-            return Ok(Json(json!({
-                "status": "ready",
-                "progress": 100,
-                "file_path": fp
-            })));
+            if is_native_format(fp) {
+                return Ok(Json(json!({
+                    "status": "ready",
+                    "progress": 100,
+                    "file_path": fp
+                })));
+            } else {
+                // Non-native: check for converted mp4
+                let mp4_path = mp4_output_path(fp);
+                if tokio::fs::metadata(&mp4_path).await.is_ok() {
+                    let _ = sqlx::query("UPDATE movies SET file_path = $1 WHERE id = $2")
+                        .bind(&mp4_path)
+                        .bind(movie_id)
+                        .execute(&state.db)
+                        .await;
+                    return Ok(Json(json!({
+                        "status": "ready",
+                        "progress": 100,
+                        "file_path": mp4_path
+                    })));
+                } else {
+                    if try_claim_conversion(&state.db, movie_id).await {
+                        trigger_ffmpeg_conversion(state.db.clone(), movie_id, fp.clone());
+                    }
+                    return Ok(Json(json!({
+                        "status": "converting",
+                        "progress": 100,
+                        "file_path": null
+                    })));
+                }
+            }
         }
     }
 
@@ -297,9 +441,16 @@ pub async fn stream_status(
 
             let video_path = find_video_file(&status_val["files"]);
 
-            let is_ready = aria2_status == "complete"
-                || progress > 5
-                || completed > 10 * 1024 * 1024;
+            // Early-ready only for native formats; non-native must be fully downloaded
+            let is_ready = if let Some(ref vp) = video_path {
+                if is_native_format(vp) {
+                    aria2_status == "complete" || progress > 5 || completed > 10 * 1024 * 1024
+                } else {
+                    aria2_status == "complete"
+                }
+            } else {
+                false
+            };
 
             if is_ready {
                 if let Some(ref vp) = video_path {
@@ -310,6 +461,18 @@ pub async fn stream_status(
                     .bind(movie_id)
                     .execute(&state.db)
                     .await;
+
+                    // Non-native complete: trigger conversion
+                    if aria2_status == "complete" && !is_native_format(vp) {
+                        if try_claim_conversion(&state.db, movie_id).await {
+                            trigger_ffmpeg_conversion(state.db.clone(), movie_id, vp.clone());
+                        }
+                        return Ok(Json(json!({
+                            "status": "converting",
+                            "progress": 100,
+                            "file_path": null
+                        })));
+                    }
                 }
                 return Ok(Json(json!({
                     "status": "ready",
@@ -352,6 +515,21 @@ pub async fn serve_stream(
     let file_path: Option<String> = row.try_get("file_path").unwrap_or(None);
     let file_path = file_path
         .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "file_not_ready"}))))?;
+
+    // For non-native formats, try the converted mp4 output
+    let file_path = if !is_native_format(&file_path) {
+        let mp4_path = mp4_output_path(&file_path);
+        if tokio::fs::metadata(&mp4_path).await.is_ok() {
+            mp4_path
+        } else {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "converting"})),
+            ));
+        }
+    } else {
+        file_path
+    };
 
     let metadata = tokio::fs::metadata(&file_path)
         .await

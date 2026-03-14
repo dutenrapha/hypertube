@@ -19,17 +19,15 @@ COPY src ./src
 RUN cargo build --release
 
 # --- Runtime stage ---
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libssl3 && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 ffmpeg && \
     rm -rf /var/lib/apt/lists/* && \
-    groupadd -r app && useradd -r -g app app && \
-    mkdir -p /uploads && chown app:app /uploads
+    mkdir -p /uploads /downloads
 
 WORKDIR /app
 COPY --from=builder /app/target/release/hypertube .
 
-USER app
 EXPOSE 8000
 CMD ["./hypertube"]
