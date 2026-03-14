@@ -223,6 +223,13 @@ async fn upsert_watched(
     .bind(movie_id)
     .execute(db)
     .await?;
+
+    // Update movies.last_watched_at so the cleanup job can track staleness
+    sqlx::query("UPDATE movies SET last_watched_at = NOW() WHERE id = $1")
+        .bind(movie_id)
+        .execute(db)
+        .await?;
+
     Ok(())
 }
 

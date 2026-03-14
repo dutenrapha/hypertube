@@ -87,6 +87,20 @@ async fn main() {
         redis: redis_manager,
     };
 
+    // Background cleanup job: runs once per day
+    {
+        let cleanup_db = state.db.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(86400));
+            interval.tick().await; // skip the immediate first tick
+            loop {
+                interval.tick().await;
+                routes::cleanup::run_cleanup(&cleanup_db).await;
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/health", get(health))
         // Serve uploaded profile pictures
@@ -142,6 +156,8 @@ async fn main() {
             get(routes::stream::serve_archive_stream),
         )
         .route("/api/movies/:id/status", get(routes::stream::stream_status))
+        // Admin
+        .route("/api/admin/cleanup", post(routes::cleanup::trigger_cleanup))
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(middleware::from_fn(request_logger))
