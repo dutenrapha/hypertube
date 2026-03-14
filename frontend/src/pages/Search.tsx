@@ -13,6 +13,7 @@ interface Movie {
   genre: string | null
   watched: boolean
   source: string
+  magnet: string | null
 }
 
 interface SearchResponse {
@@ -42,6 +43,7 @@ export default function Search() {
   const [genreFilter, setGenreFilter] = useState('')
   const [yearMin, setYearMin] = useState('')
   const [yearMax, setYearMax] = useState('')
+  const [fetchError, setFetchError] = useState(false)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -54,23 +56,30 @@ export default function Search() {
     setPage(1)
     setMovies([])
     setHasNext(false)
+    setFetchError(false)
   }, [inputValue])
 
   const fetchMovies = useCallback(async (q: string, p: number, append: boolean) => {
     if (!token) return
     const url = `/api/search?q=${encodeURIComponent(q)}&page=${p}&limit=${LIMIT}`
     setLoading(true)
+    setFetchError(false)
     try {
       const resp = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!resp.ok) return
+      if (!resp.ok) {
+        setFetchError(true)
+        if (!append) setMovies([])
+        return
+      }
       const data: SearchResponse = await resp.json()
       setMovies(prev => (append ? [...prev, ...data.movies] : data.movies))
       setHasNext(data.has_next)
       setPage(p)
     } catch {
-      // network error — ignore
+      setFetchError(true)
+      if (!append) setMovies([])
     } finally {
       setLoading(false)
     }
@@ -261,7 +270,7 @@ export default function Search() {
             key={movie.id}
             onClick={() =>
               navigate(`/movies/${encodeURIComponent(movie.id)}`, {
-                state: { title: movie.title, year: movie.year, cover_url: movie.cover_url },
+                state: { title: movie.title, year: movie.year, cover_url: movie.cover_url, magnet: movie.magnet },
               })
             }
             style={{
@@ -337,8 +346,8 @@ export default function Search() {
       )}
 
       {!loading && displayMovies.length === 0 && (
-        <p style={{ textAlign: 'center', color: '#aaa', padding: 40 }}>
-          {t('search.no_results')}
+        <p style={{ textAlign: 'center', color: fetchError ? '#e57373' : '#aaa', padding: 40 }}>
+          {fetchError ? t('search.error_loading') : t('search.no_results')}
         </p>
       )}
     </div>

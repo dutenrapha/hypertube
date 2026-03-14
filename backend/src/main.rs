@@ -1,5 +1,9 @@
 use axum::{
+    body::Body,
     extract::DefaultBodyLimit,
+    http::Request,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
@@ -11,6 +15,29 @@ use tower_http::services::ServeDir;
 
 mod jwt;
 mod routes;
+
+/// Log every incoming request: method, path, and whether Authorization header is present.
+async fn request_logger(req: Request<Body>, next: Next) -> Response {
+    let method = req.method().as_str().to_string();
+    let path = req.uri().path().to_string();
+    let query = req.uri().query().unwrap_or("").to_string();
+    let full = if query.is_empty() {
+        path.clone()
+    } else {
+        format!("{}?{}", path, query)
+    };
+    let has_auth = req.headers().get("Authorization").is_some();
+    eprintln!(
+        "[http] --> {} {} auth_header={}",
+        method,
+        full,
+        if has_auth { "yes" } else { "NO" }
+    );
+    let response = next.run(req).await;
+    let status = response.status().as_u16();
+    eprintln!("[http] <-- {} status={}", method, status);
+    response
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -105,8 +132,19 @@ async fn main() {
             "/api/movies/:id/comments",
             get(routes::movies::list_comments).post(routes::movies::create_comment),
         )
+        // Streaming via aria2
+        .route(
+            "/api/movies/:id/stream",
+            post(routes::stream::start_stream).get(routes::stream::serve_stream),
+        )
+        .route(
+            "/api/movies/:id/stream/archive",
+            get(routes::stream::serve_archive_stream),
+        )
+        .route("/api/movies/:id/status", get(routes::stream::stream_status))
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(middleware::from_fn(request_logger))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

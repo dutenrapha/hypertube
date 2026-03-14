@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,6 +16,7 @@ interface MovieDetail {
   length_minutes: number | null
   available_subtitles: string[]
   video_url: string | null
+  torrent_magnet: string | null
   comments_count: number
 }
 
@@ -26,6 +27,8 @@ interface Comment {
   username: string
   profile_picture_url: string | null
 }
+
+type StreamStatus = 'not_started' | 'downloading' | 'ready'
 
 export default function MovieDetails() {
   const { id } = useParams<{ id: string }>()
@@ -40,8 +43,22 @@ export default function MovieDetails() {
   const [commentText, setCommentText] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // State passed from Search (title, year, cover_url)
-  const passedState = (location.state as { title?: string; year?: string; cover_url?: string } | null) ?? {}
+  // Streaming state
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('not_started')
+  const [streamProgress, setStreamProgress] = useState(0)
+  const [streamStarting, setStreamStarting] = useState(false)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // State passed from Search
+  const passedState = (location.state as {
+    title?: string
+    year?: string
+    cover_url?: string
+    magnet?: string | null
+  } | null) ?? {}
+
+  // Get the magnet from navigation state or movie details
+  const magnet = passedState.magnet ?? movie?.torrent_magnet ?? null
 
   useEffect(() => {
     if (!token) {
@@ -72,6 +89,78 @@ export default function MovieDetails() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, token])
 
+  // Stop polling when component unmounts
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    }
+  }, [])
+
+  const pollStatus = () => {
+    if (!id || !token) return
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/movies/${encodeURIComponent(id)}/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = await resp.json()
+        setStreamProgress(data.progress ?? 0)
+        if (data.status === 'ready') {
+          setStreamStatus('ready')
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+        } else if (data.status === 'not_started') {
+          setStreamStatus('not_started')
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 2000)
+  }
+
+  const handleWatch = async () => {
+    if (!id || !token || streamStarting) return
+    const magnetToUse = magnet
+    if (!magnetToUse) {
+      alert('No magnet link available for this movie.')
+      return
+    }
+
+    setStreamStarting(true)
+    try {
+      const resp = await fetch(`/api/movies/${encodeURIComponent(id)}/stream`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ magnet: magnetToUse }),
+      })
+
+      if (resp.ok) {
+        const data = await resp.json()
+        if (data.status === 'ready') {
+          setStreamStatus('ready')
+        } else {
+          setStreamStatus('downloading')
+          pollStatus()
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setStreamStarting(false)
+    }
+  }
+
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!commentText.trim() || !token || !id) return
@@ -87,7 +176,6 @@ export default function MovieDetails() {
       })
       if (resp.ok) {
         setCommentText('')
-        // Refresh comments
         const updated = await fetch(`/api/movies/${encodeURIComponent(id)}/comments`, {
           headers: { Authorization: `Bearer ${token}` },
         })
@@ -118,6 +206,8 @@ export default function MovieDetails() {
       </div>
     )
   }
+
+  const streamUrl = `/api/movies/${encodeURIComponent(id ?? '')}/stream`
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0f0f1a', color: 'white' }}>
@@ -181,27 +271,95 @@ export default function MovieDetails() {
         </div>
       </div>
 
-      {/* Video player */}
-      {movie.video_url && (
-        <div style={{ padding: '24px 20px' }}>
-          <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>{t('movie_details.watch')}</h2>
+      {/* Streaming section */}
+      <div style={{ padding: '24px 20px' }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>{t('movie_details.watch')}</h2>
+
+        {/* Video player — shown when ready */}
+        {streamStatus === 'ready' && (
           <video
             controls
-            style={{ width: '100%', maxWidth: 900, borderRadius: 8, backgroundColor: '#000' }}
+            autoPlay
+            data-testid="stream-player"
+            style={{ width: '100%', maxWidth: 900, borderRadius: 8, backgroundColor: '#000', display: 'block', marginBottom: 16 }}
             crossOrigin="anonymous"
           >
-            <source src={movie.video_url} />
+            <source
+              src={`${streamUrl}?t=${Date.now()}`}
+              type={
+                movie.torrent_magnet?.includes('.mkv') ? 'video/x-matroska' : 'video/mp4'
+              }
+            />
             {movie.available_subtitles.map((sub, i) => (
               <track key={i} kind="subtitles" src={sub} />
             ))}
             {t('movie_details.video_not_supported')}
           </video>
-        </div>
-      )}
+        )}
 
-      {/* Subtitles list (if no video player shown) */}
-      {!movie.video_url && movie.available_subtitles.length > 0 && (
-        <div style={{ padding: '24px 20px' }}>
+        {/* Progress bar — shown while downloading */}
+        {streamStatus === 'downloading' && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ margin: '0 0 8px', color: '#aaa', fontSize: 14 }}>
+              {t('movie_details.downloading')} {streamProgress}%
+            </p>
+            <div style={{ width: '100%', maxWidth: 500, height: 8, backgroundColor: '#333', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                data-testid="stream-progress"
+                style={{
+                  height: '100%',
+                  width: `${streamProgress}%`,
+                  backgroundColor: '#7c8cff',
+                  borderRadius: 4,
+                  transition: 'width 0.5s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Watch / torrent button */}
+        {streamStatus === 'not_started' && magnet && (
+          <button
+            onClick={handleWatch}
+            disabled={streamStarting}
+            data-testid="watch-button"
+            style={{
+              padding: '10px 24px',
+              borderRadius: 6,
+              border: 'none',
+              backgroundColor: streamStarting ? '#555' : '#7c8cff',
+              color: 'white',
+              cursor: streamStarting ? 'not-allowed' : 'pointer',
+              fontSize: 15,
+              fontWeight: 600,
+            }}
+          >
+            {streamStarting ? t('movie_details.starting') : t('movie_details.watch_torrent')}
+          </button>
+        )}
+
+        {/* Fallback: archive.org video via backend proxy (avoids CORS) */}
+        {streamStatus === 'not_started' && !magnet && movie.video_url && (
+          <video
+            controls
+            style={{ width: '100%', maxWidth: 900, borderRadius: 8, backgroundColor: '#000' }}
+          >
+            <source
+              src={`/api/movies/${encodeURIComponent(id ?? '')}/stream/archive?token=${encodeURIComponent(token ?? '')}`}
+              type="video/mp4"
+            />
+            {movie.available_subtitles.map((sub, i) => (
+              <track key={i} kind="subtitles" src={sub} />
+            ))}
+            {t('movie_details.video_not_supported')}
+          </video>
+        )}
+      </div>
+
+      {/* Subtitles list (when no player shown) */}
+      {streamStatus === 'not_started' && !magnet && !movie.video_url && movie.available_subtitles.length > 0 && (
+        <div style={{ padding: '0 20px 24px' }}>
           <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('movie_details.subtitles')}</h3>
           <ul style={{ margin: 0, paddingLeft: 20, color: '#aaa', fontSize: 13 }}>
             {movie.available_subtitles.map((sub, i) => (

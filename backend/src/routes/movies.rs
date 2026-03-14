@@ -84,7 +84,8 @@ async fn fetch_archive_subtitles(identifier: &str) -> Vec<String> {
 }
 
 /// Fetch the best video file URL from archive.org for a given identifier.
-async fn fetch_archive_video_url(identifier: &str) -> Option<String> {
+/// Public so the stream proxy can use it.
+pub async fn fetch_archive_video_url(identifier: &str) -> Option<String> {
     if identifier.starts_with("pdt-") {
         return None;
     }
@@ -180,7 +181,7 @@ pub async fn get_movie(
     // 2. Try DB
     let db_row = sqlx::query(
         "SELECT id, title, year, imdb_rating::float8 AS imdb_rating, genre, \
-         summary, director, cast_list, cover_url, length_minutes \
+         summary, director, cast_list, cover_url, length_minutes, torrent_magnet \
          FROM movies WHERE imdb_id = $1",
     )
     .bind(&external_id)
@@ -248,6 +249,7 @@ pub async fn get_movie(
 
         let cover_url: Option<String> = row.try_get("cover_url").unwrap_or(None);
         let year: Option<i32> = row.try_get("year").unwrap_or(None);
+        let torrent_magnet: Option<String> = row.try_get("torrent_magnet").unwrap_or(None);
         let cast_vec = split_cast(cast_list.as_deref());
 
         let subtitles = fetch_archive_subtitles(&external_id).await;
@@ -266,6 +268,7 @@ pub async fn get_movie(
             "length_minutes":      length_minutes,
             "available_subtitles": subtitles,
             "video_url":           video_url,
+            "torrent_magnet":      torrent_magnet,
         });
 
         (mid, data)
@@ -350,6 +353,7 @@ pub async fn get_movie(
             "length_minutes":      length_minutes,
             "available_subtitles": subtitles,
             "video_url":           video_url,
+            "torrent_magnet":      Value::Null,
         });
 
         (mid, data)

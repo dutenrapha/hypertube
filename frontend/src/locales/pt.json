@@ -73,7 +73,8 @@
     "year_to": "Ano final",
     "loading": "Carregando…",
     "watched_badge": "ASSISTIDO",
-    "no_results": "Nenhum resultado encontrado."
+    "no_results": "Nenhum resultado encontrado.",
+    "error_loading": "Não foi possível carregar os filmes. Verifique a conexão ou tente sair e entrar novamente."
   },
   "movie_details": {
     "loading": "Carregando…",
@@ -82,6 +83,9 @@
     "director": "Diretor",
     "cast": "Elenco",
     "watch": "Assistir",
+    "watch_torrent": "Assistir (baixar e transmitir)",
+    "starting": "Iniciando…",
+    "downloading": "Baixando…",
     "subtitles": "Legendas",
     "video_not_supported": "Seu navegador não suporta o elemento de vídeo.",
     "comments": "Comentários",

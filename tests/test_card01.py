@@ -68,16 +68,29 @@ def test_frontend_returns_html():
 
 def test_aria2c_rpc_responds():
     """aria2c RPC endpoint responds to a getVersion call."""
+    # Read the RPC secret from .env (if set)
+    aria2_secret = ""
+    try:
+        env_path = os.path.join(PROJECT_ROOT, ".env")
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("ARIA2_RPC_SECRET="):
+                    aria2_secret = line.split("=", 1)[1].strip()
+                    break
+    except Exception:
+        pass
+
+    params = [f"token:{aria2_secret}"] if aria2_secret else []
     payload = {
         "jsonrpc": "2.0",
         "id": "test",
         "method": "aria2.getVersion",
-        "params": [],
+        "params": params,
     }
     resp = requests.post(ARIA2C_URL, json=payload, timeout=10)
     assert resp.status_code == 200
     data = resp.json()
-    assert "result" in data
+    assert "result" in data, f"Expected 'result' in response: {data}"
     assert "version" in data["result"]
 
 

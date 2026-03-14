@@ -19,7 +19,7 @@ bcrypt = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 infer = "0.16"
 jsonwebtoken = "9"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 urlencoding = "2"
 rand = "0.8"
 sha2 = "0.10"
@@ -28,6 +28,7 @@ lettre = { version = "0.11", default-features = false, features = ["smtp-transpo
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
 regex = "1"
 futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [profile.release]
 opt-level = "s"

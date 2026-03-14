@@ -6,10 +6,4 @@ RUN mkdir -p /downloads
 
 EXPOSE 6800
 
-CMD ["aria2c", \
-     "--enable-rpc=true", \
-     "--rpc-listen-all=true", \
-     "--rpc-allow-origin-all=true", \
-     "--rpc-listen-port=6800", \
-     "--dir=/downloads", \
-     "--log-level=warn"]
+CMD ["sh", "-c", "exec aria2c --enable-rpc=true --rpc-listen-all=true --rpc-allow-origin-all=true --rpc-listen-port=6800 --rpc-secret=${ARIA2_RPC_SECRET} --dir=/downloads --log-level=warn"]

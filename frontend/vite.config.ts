@@ -7,8 +7,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     proxy: {
-      '/api': 'http://backend:8000',
-      '/uploads': 'http://backend:8000',
+      '/api': process.env.VITE_API_PROXY ?? 'http://backend:8000',
+      '/uploads': process.env.VITE_API_PROXY ?? 'http://backend:8000',
     },
   },
 })
