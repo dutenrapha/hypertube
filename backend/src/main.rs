@@ -4,7 +4,7 @@ use axum::{
     http::Request,
     middleware::{self, Next},
     response::Response,
-    routing::{get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde_json::{json, Value};
@@ -163,6 +163,40 @@ async fn main() {
         .route("/api/movies/:id/status", get(routes::stream::stream_status))
         // Admin
         .route("/api/admin/cleanup", post(routes::cleanup::trigger_cleanup))
+        // OAuth2 Server (Card 16)
+        .route("/oauth/token", post(routes::oauth2_server::oauth_token))
+        .route(
+            "/users",
+            get(routes::oauth2_server::list_users_oauth),
+        )
+        .route(
+            "/users/:id",
+            get(routes::oauth2_server::get_user_oauth)
+                .patch(routes::oauth2_server::update_user_oauth),
+        )
+        .route(
+            "/movies",
+            get(routes::oauth2_server::list_movies_oauth),
+        )
+        .route(
+            "/movies/:id",
+            get(routes::oauth2_server::get_movie_oauth),
+        )
+        .route(
+            "/comments",
+            get(routes::oauth2_server::list_comments_oauth)
+                .post(routes::oauth2_server::create_comment_oauth),
+        )
+        .route(
+            "/comments/:id",
+            get(routes::oauth2_server::get_comment_oauth)
+                .patch(routes::oauth2_server::update_comment_oauth)
+                .delete(routes::oauth2_server::delete_comment_oauth),
+        )
+        .route(
+            "/movies/:movie_id/comments",
+            post(routes::oauth2_server::create_movie_comment_oauth),
+        )
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(middleware::from_fn(request_logger))

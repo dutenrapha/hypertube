@@ -1,0 +1,268 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2025-03-14T00:00:00.000Z",
+  "__export_source": "insomnia.desktop.app",
+  "resources": [
+    {
+      "_id": "wrk_hypertube_oauth2",
+      "_type": "workspace",
+      "name": "Hypertube OAuth2 API (Card 16)",
+      "description": "Endpoints do backend OAuth2: token, users, movies, comments.",
+      "scope": "collection"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "name": "Base",
+      "data": {
+        "base_url": "http://localhost:8000",
+        "client_id": "insomnia-test",
+        "client_secret": "insomniasecret",
+        "username": "isomniatest",
+        "password": "1insomniatest1",
+        "user_token": "",
+        "machine_token": "",
+        "user_id": "",
+        "movie_id": "",
+        "comment_id": ""
+      },
+      "dataPropertyOrder": {
+        "&": ["base_url", "client_id", "client_secret", "username", "password", "user_token", "machine_token", "user_id", "movie_id", "comment_id"]
+      },
+      "isPrivate": false,
+      "metaSortKey": -1,
+      "parentId": "wrk_hypertube_oauth2"
+    },
+    {
+      "_id": "fld_auth",
+      "_type": "request_group",
+      "name": "1. Auth (OAuth2 Token)",
+      "description": "Obter access_token. Use client_credentials (machine) ou password (user-bound).",
+      "environment": {},
+      "metaSortKey": 1,
+      "parentId": "wrk_hypertube_oauth2"
+    },
+    {
+      "_id": "req_token_machine",
+      "_type": "request",
+      "name": "POST Token (client_credentials)",
+      "method": "POST",
+      "url": "{{ base_url }}/oauth/token",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"client_id\": \"{{ client_id }}\",\n  \"client_secret\": \"{{ client_secret }}\",\n  \"grant_type\": \"client_credentials\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Token de máquina (sem usuário). Use para GET users, movies, comments (leitura).",
+      "metaSortKey": 1,
+      "parentId": "fld_auth"
+    },
+    {
+      "_id": "req_token_password",
+      "_type": "request",
+      "name": "POST Token (password)",
+      "method": "POST",
+      "url": "{{ base_url }}/oauth/token",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"client_id\": \"{{ client_id }}\",\n  \"client_secret\": \"{{ client_secret }}\",\n  \"grant_type\": \"password\",\n  \"username\": \"{{ username }}\",\n  \"password\": \"{{ password }}\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Token vinculado ao usuário. Necessário para PATCH user, POST/PATCH/DELETE comments.",
+      "metaSortKey": 2,
+      "parentId": "fld_auth"
+    },
+    {
+      "_id": "fld_users",
+      "_type": "request_group",
+      "name": "2. Users",
+      "environment": {},
+      "metaSortKey": 2,
+      "parentId": "wrk_hypertube_oauth2"
+    },
+    {
+      "_id": "req_users_list",
+      "_type": "request",
+      "name": "GET List users",
+      "method": "GET",
+      "url": "{{ base_url }}/users",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Lista usuários (id, username). Qualquer token válido.",
+      "metaSortKey": 1,
+      "parentId": "fld_users"
+    },
+    {
+      "_id": "req_user_get",
+      "_type": "request",
+      "name": "GET User by ID",
+      "method": "GET",
+      "url": "{{ base_url }}/users/{{ user_id }}",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Detalhes do usuário (username, email, profile_picture_url). Preencha user_id no env.",
+      "metaSortKey": 2,
+      "parentId": "fld_users"
+    },
+    {
+      "_id": "req_user_patch",
+      "_type": "request",
+      "name": "PATCH Update user",
+      "method": "PATCH",
+      "url": "{{ base_url }}/users/{{ user_id }}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"username\": \"novo_username\",\n  \"email\": \"novo@email.com\",\n  \"profile_picture_url\": \"https://example.com/avatar.png\"\n}"
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false },
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Só o próprio usuário (token user-bound). 403 se não for o dono. Preencha user_id no env.",
+      "metaSortKey": 3,
+      "parentId": "fld_users"
+    },
+    {
+      "_id": "fld_movies",
+      "_type": "request_group",
+      "name": "3. Movies",
+      "environment": {},
+      "metaSortKey": 3,
+      "parentId": "wrk_hypertube_oauth2"
+    },
+    {
+      "_id": "req_movies_list",
+      "_type": "request",
+      "name": "GET List movies",
+      "method": "GET",
+      "url": "{{ base_url }}/movies",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Lista filmes (id, name). Qualquer token válido.",
+      "metaSortKey": 1,
+      "parentId": "fld_movies"
+    },
+    {
+      "_id": "req_movie_get",
+      "_type": "request",
+      "name": "GET Movie by ID",
+      "method": "GET",
+      "url": "{{ base_url }}/movies/{{ movie_id }}",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Detalhes do filme. Preencha movie_id no env (UUID).",
+      "metaSortKey": 2,
+      "parentId": "fld_movies"
+    },
+    {
+      "_id": "req_movie_comment_post",
+      "_type": "request",
+      "name": "POST Comment on movie",
+      "method": "POST",
+      "url": "{{ base_url }}/movies/{{ movie_id }}/comments",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"content\": \"Meu comentário no filme.\"\n}"
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false },
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Criar comentário em um filme. Requer token user-bound. Preencha movie_id no env.",
+      "metaSortKey": 3,
+      "parentId": "fld_movies"
+    },
+    {
+      "_id": "fld_comments",
+      "_type": "request_group",
+      "name": "4. Comments",
+      "environment": {},
+      "metaSortKey": 4,
+      "parentId": "wrk_hypertube_oauth2"
+    },
+    {
+      "_id": "req_comments_list",
+      "_type": "request",
+      "name": "GET List comments",
+      "method": "GET",
+      "url": "{{ base_url }}/comments",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Lista comentários. Qualquer token válido.",
+      "metaSortKey": 1,
+      "parentId": "fld_comments"
+    },
+    {
+      "_id": "req_comment_get",
+      "_type": "request",
+      "name": "GET Comment by ID",
+      "method": "GET",
+      "url": "{{ base_url }}/comments/{{ comment_id }}",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Detalhes de um comentário. Preencha comment_id no env.",
+      "metaSortKey": 2,
+      "parentId": "fld_comments"
+    },
+    {
+      "_id": "req_comment_post",
+      "_type": "request",
+      "name": "POST Create comment",
+      "method": "POST",
+      "url": "{{ base_url }}/comments",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"movie_id\": \"{{ movie_id }}\",\n  \"content\": \"Conteúdo do comentário.\"\n}"
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false },
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Criar comentário (especificando movie_id no body). Requer token user-bound.",
+      "metaSortKey": 3,
+      "parentId": "fld_comments"
+    },
+    {
+      "_id": "req_comment_patch",
+      "_type": "request",
+      "name": "PATCH Update comment",
+      "method": "PATCH",
+      "url": "{{ base_url }}/comments/{{ comment_id }}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"comment\": \"Conteúdo atualizado do comentário.\"\n}"
+      },
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false },
+        { "name": "Content-Type", "value": "application/json", "disabled": false }
+      ],
+      "description": "Atualizar só o próprio comentário. 403 se não for o autor. Preencha comment_id no env.",
+      "metaSortKey": 4,
+      "parentId": "fld_comments"
+    },
+    {
+      "_id": "req_comment_delete",
+      "_type": "request",
+      "name": "DELETE Comment",
+      "method": "DELETE",
+      "url": "{{ base_url }}/comments/{{ comment_id }}",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ user_token }}", "disabled": false }
+      ],
+      "description": "Deletar só o próprio comentário. 403 se não for o autor. Preencha comment_id no env.",
+      "metaSortKey": 5,
+      "parentId": "fld_comments"
+    }
+  ]
+}

@@ -156,13 +156,20 @@ async fn fetch_subtitle_for_lang(
     title: &str,
     lang: &str,
 ) -> Option<String> {
-    let file_path = format!("{}/{}/{}.vtt", SUBTITLE_DIR, movie_uuid, lang);
-    let serve_url = format!("/subtitles/{}/{}.vtt", movie_uuid, lang);
-
-    // Already cached on disk
-    if tokio::fs::metadata(&file_path).await.is_ok() {
-        return Some(serve_url);
+    // Check for cached .vtt
+    let vtt_path = format!("{}/{}/{}.vtt", SUBTITLE_DIR, movie_uuid, lang);
+    if tokio::fs::metadata(&vtt_path).await.is_ok() {
+        return Some(format!("/subtitles/{}/{}.vtt", movie_uuid, lang));
     }
+
+    // Check for pre-existing .srt (created externally or by tests)
+    let srt_path = format!("{}/{}/{}.srt", SUBTITLE_DIR, movie_uuid, lang);
+    if tokio::fs::metadata(&srt_path).await.is_ok() {
+        return Some(format!("/subtitles/{}/{}.srt", movie_uuid, lang));
+    }
+
+    let file_path = vtt_path;
+    let serve_url = format!("/subtitles/{}/{}.vtt", movie_uuid, lang);
 
     // Try OpenSubtitles
     let file_id = search_subtitle(title, lang).await?;
