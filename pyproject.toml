@@ -8,6 +8,7 @@ dependencies = [
     "requests>=2.32",
     "psycopg2-binary>=2.9",
     "pyjwt>=2.9",
+    "redis>=7.3.0",
 ]
 
 [tool.pytest.ini_options]

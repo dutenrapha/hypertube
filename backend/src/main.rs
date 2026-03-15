@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::DefaultBodyLimit,
-    http::Request,
+    http::{HeaderValue, Request},
     middleware::{self, Next},
     response::Response,
     routing::{delete, get, patch, post},
@@ -15,6 +15,18 @@ use tower_http::services::ServeDir;
 
 mod jwt;
 mod routes;
+
+/// Add security headers to every response.
+async fn security_headers(req: Request<Body>, next: Next) -> Response {
+    let mut resp = next.run(req).await;
+    let headers = resp.headers_mut();
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    resp
+}
 
 /// Log every incoming request: method, path, and whether Authorization header is present.
 async fn request_logger(req: Request<Body>, next: Next) -> Response {
@@ -199,6 +211,7 @@ async fn main() {
         )
         // Allow up to 10 MB globally; file size is enforced per-field in handlers
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn(request_logger))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -207,5 +220,7 @@ async fn main() {
     println!("Backend listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .await
+        .unwrap();
 }

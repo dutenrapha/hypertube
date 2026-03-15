@@ -1,14 +1,18 @@
 use axum::{
-    extract::{Multipart, State},
+    extract::{ConnectInfo, Multipart, State},
     http::StatusCode,
     Json,
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 use crate::{jwt, AppState};
+
+const LOGIN_RATE_LIMIT: i64 = 5;   // max failed attempts
+const LOGIN_RATE_TTL: usize = 60;   // seconds
 
 const MAX_FILE_SIZE: usize = 5 * 1024 * 1024; // 5 MB
 const BCRYPT_COST: u32 = 12;
@@ -266,9 +270,29 @@ struct UserForLogin {
 }
 
 pub async fn login(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> ApiResult {
+    let ip = addr.ip().to_string();
+    let rate_key = format!("rate_limit:login:{}", ip);
+
+    // Check current failure count for this IP
+    let mut redis = state.redis.clone();
+    let fail_count: i64 = redis::cmd("GET")
+        .arg(&rate_key)
+        .query_async(&mut redis)
+        .await
+        .unwrap_or(0i64);
+
+    if fail_count >= LOGIN_RATE_LIMIT {
+        return Err(api_err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many failed login attempts. Try again later.",
+        ));
+    }
+
     let invalid = || {
         api_err(
             StatusCode::UNAUTHORIZED,
@@ -285,10 +309,31 @@ pub async fn login(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, "db_error", &e.to_string()))?
-    .ok_or_else(invalid)?;
+    .ok_or_else(|| {
+        // Increment failed attempt counter on user-not-found
+        let key = rate_key.clone();
+        let mut r = redis.clone();
+        tokio::spawn(async move {
+            let n: i64 = redis::cmd("INCR").arg(&key).query_async(&mut r).await.unwrap_or(1);
+            if n == 1 {
+                let _: () = redis::cmd("EXPIRE").arg(&key).arg(LOGIN_RATE_TTL).query_async(&mut r).await.unwrap_or(());
+            }
+        });
+        invalid()
+    })?;
 
     // OAuth-only users have no password_hash → same 401
-    let hash = user.password_hash.ok_or_else(invalid)?;
+    let hash = user.password_hash.ok_or_else(|| {
+        let key = rate_key.clone();
+        let mut r = redis.clone();
+        tokio::spawn(async move {
+            let n: i64 = redis::cmd("INCR").arg(&key).query_async(&mut r).await.unwrap_or(1);
+            if n == 1 {
+                let _: () = redis::cmd("EXPIRE").arg(&key).arg(LOGIN_RATE_TTL).query_async(&mut r).await.unwrap_or(());
+            }
+        });
+        invalid()
+    })?;
 
     // Verify bcrypt (CPU-intensive — offload to blocking thread)
     let password = body.password.clone();
@@ -298,8 +343,31 @@ pub async fn login(
         .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "verify_failed", ""))?;
 
     if !valid {
+        // Increment failed attempt counter on wrong password
+        let mut r = redis.clone();
+        let n: i64 = redis::cmd("INCR")
+            .arg(&rate_key)
+            .query_async(&mut r)
+            .await
+            .unwrap_or(1);
+        if n == 1 {
+            let _: () = redis::cmd("EXPIRE")
+                .arg(&rate_key)
+                .arg(LOGIN_RATE_TTL)
+                .query_async(&mut r)
+                .await
+                .unwrap_or(());
+        }
         return Err(invalid());
     }
+
+    // Successful login — reset failure counter
+    let mut r = redis.clone();
+    let _: () = redis::cmd("DEL")
+        .arg(&rate_key)
+        .query_async(&mut r)
+        .await
+        .unwrap_or(());
 
     let token = jwt::create_token(user.id, &user.username)
         .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "token_failed", ""))?;
