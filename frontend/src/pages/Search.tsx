@@ -268,66 +268,51 @@ export default function Search() {
         {displayMovies.map(movie => (
           <div
             key={movie.id}
+            data-testid="movie-card"
+            data-watched={movie.watched ? 'true' : 'false'}
+            className={`movie-card${movie.watched ? ' watched' : ''}`}
+            aria-label={
+              movie.watched
+                ? `${movie.title} — ${t('search.watched_badge')}`
+                : movie.title
+            }
             onClick={() =>
               navigate(`/movies/${encodeURIComponent(movie.id)}`, {
-                state: { title: movie.title, year: movie.year, cover_url: movie.cover_url, magnet: movie.magnet },
+                state: {
+                  title: movie.title,
+                  year: movie.year,
+                  cover_url: movie.cover_url,
+                  magnet: movie.magnet,
+                },
               })
             }
-            style={{
-              position: 'relative',
-              borderRadius: 8,
-              overflow: 'hidden',
-              backgroundColor: '#1e1e2e',
-              cursor: 'pointer',
-            }}
           >
             {movie.watched && (
               <span
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 8,
-                  zIndex: 1,
-                  backgroundColor: '#4caf50',
-                  color: 'white',
-                  fontSize: 10,
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                  fontWeight: 700,
-                  letterSpacing: 1,
-                }}
+                className="watched-corner"
+                data-testid="watched-corner"
               >
                 {t('search.watched_badge')}
               </span>
             )}
             <img
+              className="cover"
               src={movie.cover_url ?? ''}
               alt={movie.title}
-              style={{
-                width: '100%',
-                aspectRatio: '2/3',
-                objectFit: 'cover',
-                display: 'block',
-                backgroundColor: '#2a2a3e',
-              }}
               onError={e => {
                 ;(e.target as HTMLImageElement).style.display = 'none'
               }}
             />
-            <div style={{ padding: '8px 10px' }}>
-              <p
-                style={{
-                  margin: 0,
-                  fontWeight: 600,
-                  fontSize: 13,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {movie.title}
-              </p>
-              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#aaa' }}>
+            {movie.watched && (
+              <div className="watched-overlay" data-testid="watched-overlay">
+                <span className="watched-stamp">
+                  {t('search.watched_badge')}
+                </span>
+              </div>
+            )}
+            <div className="meta">
+              <p className="title">{movie.title}</p>
+              <p className="sub">
                 {movie.year ?? '—'}
                 {movie.imdb_rating && ` · ★ ${movie.imdb_rating}`}
               </p>

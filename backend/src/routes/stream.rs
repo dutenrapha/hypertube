@@ -233,6 +233,44 @@ async fn upsert_watched(
     Ok(())
 }
 
+/// Look up (or create) a movies row for the given external_id (= imdb_id field
+/// in our schema), then mark it as watched for `user_id`. Used by the archive.org
+/// proxy stream where the row may not have been created yet via /api/movies/:id.
+async fn upsert_watched_by_imdb_id(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    imdb_id: &str,
+) -> Result<(), sqlx::Error> {
+    let row = sqlx::query(
+        "INSERT INTO movies (title, imdb_id) VALUES ($1, $2) \
+         ON CONFLICT (imdb_id) DO UPDATE SET imdb_id = EXCLUDED.imdb_id \
+         RETURNING id",
+    )
+    .bind(imdb_id)
+    .bind(imdb_id)
+    .fetch_one(db)
+    .await?;
+    let movie_id: Uuid = row.try_get("id")?;
+    upsert_watched(db, user_id, movie_id).await
+}
+
+/// Returns true when this HTTP request looks like the *start* of a playback
+/// session (no Range header, or Range starts at byte 0). Avoids writing to the
+/// DB on every subsequent Range chunk requested by the <video> element.
+fn is_initial_playback_request(headers: &HeaderMap) -> bool {
+    match headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("bytes="))
+    {
+        None => true,
+        Some(spec) => spec
+            .split_once('-')
+            .map(|(start, _)| start.trim() == "0")
+            .unwrap_or(false),
+    }
+}
+
 // ── POST /api/movies/:external_id/stream ──────────────────────────────────────
 
 pub async fn start_stream(
@@ -632,14 +670,14 @@ pub async fn serve_archive_stream(
     headers: HeaderMap,
     Path(external_id): Path<String>,
     Query(query): Query<StreamArchiveQuery>,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Response<Body>, ApiError> {
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .or_else(|| query.token.as_deref());
-    let _claims = token
+    let claims = token
         .ok_or_else(|| {
             (
                 StatusCode::UNAUTHORIZED,
@@ -648,6 +686,15 @@ pub async fn serve_archive_stream(
         })
         .and_then(|t| jwt::verify_token(t))
         .map_err(|e| e)?;
+
+    // Mark as watched on the *first* request of a playback session. The HTML
+    // <video> element issues many Range requests; we only persist on the
+    // initial one (no Range, or Range bytes=0-...) to avoid hammering the DB.
+    if is_initial_playback_request(&headers) {
+        if let Ok(user_uuid) = claims.user_id.parse::<Uuid>() {
+            let _ = upsert_watched_by_imdb_id(&state.db, user_uuid, &external_id).await;
+        }
+    }
 
     let video_url = movies::fetch_archive_video_url(&external_id)
         .await

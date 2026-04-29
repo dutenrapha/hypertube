@@ -421,25 +421,26 @@ pub async fn search(
         all
     };
 
-    // Inject watched status per user (never cached)
+    // Inject watched status per user (never cached because it's user-specific).
+    // Match by imdb_id (= external id used in the search payload), not by title:
+    // titles are noisy and ambiguous, while imdb_id is what we persist when the
+    // user opens / streams the movie (movies.imdb_id <- external_id).
     if let Ok(user_uuid) = claims.user_id.parse::<Uuid>() {
-        let watched_titles: Vec<String> = sqlx::query_scalar(
-            "SELECT m.title FROM watched_movies wm \
+        let watched_imdb_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT m.imdb_id FROM watched_movies wm \
              JOIN movies m ON m.id = wm.movie_id \
-             WHERE wm.user_id = $1",
+             WHERE wm.user_id = $1 AND m.imdb_id IS NOT NULL",
         )
         .bind(user_uuid)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
 
-        let watched_set: std::collections::HashSet<String> = watched_titles
-            .into_iter()
-            .map(|t| t.to_lowercase())
-            .collect();
+        let watched_set: std::collections::HashSet<String> =
+            watched_imdb_ids.into_iter().collect();
 
         for movie in &mut movies {
-            movie.watched = watched_set.contains(&movie.title.to_lowercase());
+            movie.watched = watched_set.contains(&movie.id);
         }
     }
 

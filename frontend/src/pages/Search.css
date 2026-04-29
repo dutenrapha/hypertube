@@ -16,3 +16,107 @@
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+.movie-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #1e1e2e;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.movie-card:hover {
+  transform: translateY(-2px);
+}
+
+.movie-card .cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+  background-color: #2a2a3e;
+  transition: filter 0.2s ease;
+}
+
+.movie-card .cover-fallback {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #2a2a3e;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+}
+
+.movie-card .meta {
+  padding: 8px 10px;
+}
+
+.movie-card .meta .title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.movie-card .meta .sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.movie-card .watched-corner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background-color: #4caf50;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.movie-card.watched .cover {
+  filter: grayscale(0.45) brightness(0.55);
+}
+
+.movie-card.watched .watched-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.7) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.movie-card.watched .watched-stamp {
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.95);
+  background-color: rgba(0, 0, 0, 0.45);
+  padding: 6px 14px;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 3px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  transform: rotate(-12deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
