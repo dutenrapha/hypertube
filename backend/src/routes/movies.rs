@@ -395,7 +395,7 @@ pub async fn list_comments(
     };
 
     let rows = sqlx::query(
-        "SELECT c.id, c.content, c.created_at, u.username, u.profile_picture_url \
+        "SELECT c.id, c.content, c.created_at, c.user_id, u.username, u.profile_picture_url \
          FROM comments c JOIN users u ON u.id = c.user_id \
          WHERE c.movie_id = $1 ORDER BY c.created_at DESC",
     )
@@ -413,6 +413,7 @@ pub async fn list_comments(
                 "created_at":          r.try_get::<chrono::DateTime<chrono::Utc>, _>("created_at")
                                          .ok()
                                          .map(|t| t.to_rfc3339()),
+                "user_id":             r.try_get::<Uuid, _>("user_id").unwrap().to_string(),
                 "username":            r.try_get::<String, _>("username").unwrap_or_default(),
                 "profile_picture_url": r.try_get::<Option<String>, _>("profile_picture_url").unwrap_or(None),
             })

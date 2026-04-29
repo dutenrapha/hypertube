@@ -46,7 +46,8 @@
     "first_name": "Nome",
     "last_name": "Sobrenome",
     "language": "Idioma",
-    "not_found": "Usuário não encontrado."
+    "not_found": "Usuário não encontrado.",
+    "back": "Voltar"
   },
   "forgot_password": {
     "title": "Esqueci minha senha",

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -24,6 +24,7 @@ interface Comment {
   id: string
   content: string
   created_at: string | null
+  user_id: string
   username: string
   profile_picture_url: string | null
 }
@@ -522,14 +523,26 @@ export default function MovieDetails() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              {c.profile_picture_url && (
-                <img
-                  src={c.profile_picture_url}
-                  alt={c.username}
-                  style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
-                />
-              )}
-              <strong style={{ fontSize: 13 }}>{c.username}</strong>
+              <Link
+                to={`/users/${encodeURIComponent(c.user_id)}`}
+                data-testid="comment-author-link"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  color: 'inherit',
+                  textDecoration: 'none',
+                }}
+              >
+                {c.profile_picture_url && (
+                  <img
+                    src={c.profile_picture_url}
+                    alt={c.username}
+                    style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                )}
+                <strong style={{ fontSize: 13 }}>{c.username}</strong>
+              </Link>
               {c.created_at && (
                 <span style={{ fontSize: 11, color: '#888' }}>
                   {new Date(c.created_at).toLocaleDateString()}

@@ -46,7 +46,8 @@
     "first_name": "First Name",
     "last_name": "Last Name",
     "language": "Language",
-    "not_found": "User not found."
+    "not_found": "User not found.",
+    "back": "Back"
   },
   "forgot_password": {
     "title": "Forgot Password",
