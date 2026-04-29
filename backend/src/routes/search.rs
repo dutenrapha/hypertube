@@ -111,18 +111,25 @@ fn archive_search_query(query: &str) -> String {
     format!("{} AND mediatype:movies", term_part)
 }
 
-async fn search_archive(query: &str) -> Vec<Movie> {
+/// Paginated Archive.org search.
+///
+/// Returns `(movies, num_found)` where `num_found` is the total number of
+/// matches reported by Archive.org (across all pages). `page` is 1-based.
+async fn search_archive(query: &str, page: u32, rows: u32) -> (Vec<Movie>, u64) {
     let client = http_client();
 
-    const ROWS: u32 = 50;
     let url = if query.is_empty() {
-        format!("https://archive.org/advancedsearch.php?q=mediatype%3Amovies&fl[]=identifier,title,year&rows={}&output=json&sort[]=-downloads", ROWS)
+        format!(
+            "https://archive.org/advancedsearch.php?q=mediatype%3Amovies&fl[]=identifier,title,year&rows={}&page={}&output=json&sort[]=-downloads",
+            rows, page
+        )
     } else {
         let q = archive_search_query(query);
         format!(
-            "https://archive.org/advancedsearch.php?q={}&fl[]=identifier,title,year&rows={}&output=json&sort[]=-downloads",
+            "https://archive.org/advancedsearch.php?q={}&fl[]=identifier,title,year&rows={}&page={}&output=json&sort[]=-downloads",
             urlencoding::encode(&q),
-            ROWS
+            rows,
+            page
         )
     };
 
@@ -130,7 +137,7 @@ async fn search_archive(query: &str) -> Vec<Movie> {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Archive.org request failed: {e}");
-            return vec![];
+            return (vec![], 0);
         }
     };
 
@@ -138,48 +145,44 @@ async fn search_archive(query: &str) -> Vec<Movie> {
         Ok(j) => j,
         Err(e) => {
             eprintln!("Archive.org JSON parse failed: {e}");
-            return vec![];
+            return (vec![], 0);
         }
     };
 
+    let num_found = json["response"]["numFound"].as_u64().unwrap_or(0);
+
     let docs = match json["response"]["docs"].as_array() {
         Some(d) => d.clone(),
-        None => return vec![],
+        None => return (vec![], num_found),
     };
 
-    let items: Vec<(String, String, Option<String>)> = docs
+    let movies: Vec<Movie> = docs
         .iter()
         .filter_map(|doc| {
             let id = doc["identifier"].as_str()?.to_string();
-            let title = doc["title"]
-                .as_str()
-                .unwrap_or(&id)
-                .to_string();
+            if id.is_empty() {
+                return None;
+            }
+            let title = doc["title"].as_str().unwrap_or(&id).to_string();
             let year = doc["year"]
                 .as_str()
                 .map(|y| y.to_string())
                 .or_else(|| doc["year"].as_i64().map(|y| y.to_string()));
-            if id.is_empty() { None } else { Some((id, title, year)) }
+            Some(Movie {
+                cover_url: Some(format!("https://archive.org/services/img/{}", id)),
+                id,
+                title,
+                year,
+                magnet: None,
+                source: "archive.org".to_string(),
+                imdb_rating: None,
+                genre: None,
+                watched: false,
+            })
         })
         .collect();
 
-    // Magnet links are not needed for search display; they are resolved in movie details.
-    // Skip btih lookups to avoid 50+ concurrent HTTP requests that slow down search.
-    items
-        .into_iter()
-        .take(ROWS as usize)
-        .map(|(id, title, year)| Movie {
-            cover_url: Some(format!("https://archive.org/services/img/{}", id)),
-            id,
-            title,
-            year,
-            magnet: None,
-            source: "archive.org".to_string(),
-            imdb_rating: None,
-            genre: None,
-            watched: false,
-        })
-        .collect()
+    (movies, num_found)
 }
 
 // ── PublicDomainTorrents.info search ─────────────────────────────────────────
@@ -338,6 +341,14 @@ async fn get_omdb_data(
 
 // ── GET /api/search ───────────────────────────────────────────────────────────
 
+/// Cached page payload. Stored per (query, page, limit) tuple in Redis.
+/// `archive_total` is needed to compute `has_next` without re-hitting Archive.org.
+#[derive(Serialize, Deserialize)]
+struct CachedPage {
+    movies: Vec<Movie>,
+    archive_total: u64,
+}
+
 pub async fn search(
     headers: HeaderMap,
     Query(params): Query<SearchParams>,
@@ -354,48 +365,76 @@ pub async fn search(
 
     let mut conn = state.redis.clone();
 
-    // Full-list cache (not user-specific — watched is injected later)
-    let cache_key = format!("search:{}", query);
-    let mut movies: Vec<Movie> = if let Some(cached) = redis_get(&mut conn, &cache_key).await {
-        let parsed: Vec<Movie> = serde_json::from_str(&cached).unwrap_or_default();
-        eprintln!("[search] cache HIT for q={:?} -> {} movies", query, parsed.len());
-        parsed
-    } else {
-        eprintln!("[search] cache MISS for q={:?}, calling archive + pdt", query);
-        let (archive_movies, pdt_movies) = tokio::join!(
-            search_archive(&query),
-            search_publicdomaintorrents(&query)
-        );
+    // Cache key now includes page+limit so each page is cached independently.
+    let cache_key = format!("search:{}:p{}:l{}", query, page, limit);
 
+    let cached: Option<CachedPage> = redis_get(&mut conn, &cache_key)
+        .await
+        .and_then(|s| serde_json::from_str(&s).ok());
+
+    let (mut movies, archive_total) = if let Some(c) = cached {
         eprintln!(
-            "[search] archive returned {} movies, pdt returned {} movies",
-            archive_movies.len(),
-            pdt_movies.len()
+            "[search] cache HIT for {} -> {} movies (archive_total={})",
+            cache_key,
+            c.movies.len(),
+            c.archive_total
         );
+        (c.movies, c.archive_total)
+    } else {
+        eprintln!("[search] cache MISS for {}", cache_key);
 
         let mut all: Vec<Movie> = Vec::new();
-        all.extend(archive_movies);
-        all.extend(pdt_movies);
+        let archive_total: u64;
 
-        // Fallback: when query is non-empty and external APIs return 0, fetch popular list
-        // and filter by title (so e.g. "bananas" matches "About Bananas")
-        if !query.is_empty() && all.is_empty() {
-            eprintln!("[search] fallback: fetching popular list and filtering by title");
-            let empty_key = "search:".to_string();
-            let popular: Vec<Movie> = if let Some(cached) = redis_get(&mut conn, &empty_key).await {
-                serde_json::from_str(&cached).unwrap_or_default()
-            } else {
-                let (arch, pdt) = tokio::join!(search_archive(""), search_publicdomaintorrents(""));
-                let mut list: Vec<Movie> = Vec::new();
-                list.extend(arch);
-                list.extend(pdt);
-                if !list.is_empty() {
-                    if let Ok(s) = serde_json::to_string(&list) {
-                        redis_set(&mut conn, &empty_key, &s, SEARCH_CACHE_TTL).await;
-                    }
-                }
-                list
-            };
+        if page == 1 {
+            // Page 1: PDT (secondary source, page-1 only) + Archive.org page 1 in parallel.
+            // We always ask Archive.org for `limit` rows so we have something to fall back
+            // to even if PDT alone fills the whole page.
+            let (pdt_movies, (archive_movies, total)) = tokio::join!(
+                search_publicdomaintorrents(&query),
+                search_archive(&query, 1, limit)
+            );
+            archive_total = total;
+
+            eprintln!(
+                "[search] page=1 pdt={} archive={} archive_total={}",
+                pdt_movies.len(),
+                archive_movies.len(),
+                archive_total
+            );
+
+            // PDT first (up to limit), then Archive fills the rest, capped at `limit`.
+            let pdt_take = std::cmp::min(pdt_movies.len(), limit as usize);
+            all.extend(pdt_movies.into_iter().take(pdt_take));
+            let remaining = (limit as usize).saturating_sub(pdt_take);
+            all.extend(archive_movies.into_iter().take(remaining));
+        } else {
+            // Pages > 1: only Archive.org. PDT is too small to paginate.
+            let (archive_movies, total) = search_archive(&query, page, limit).await;
+            archive_total = total;
+            eprintln!(
+                "[search] page={} archive={} archive_total={}",
+                page,
+                archive_movies.len(),
+                archive_total
+            );
+            all.extend(archive_movies);
+        }
+
+        // Fallback (page 1 only): when a non-empty query returns 0 from external APIs,
+        // try filtering the popular list by title (so "bananas" matches "About Bananas").
+        if !query.is_empty() && all.is_empty() && page == 1 {
+            eprintln!("[search] fallback: filtering popular list by title");
+            let popular_key = format!("search::p1:l{}", limit);
+            let popular: Vec<Movie> =
+                if let Some(cached) = redis_get(&mut conn, &popular_key).await {
+                    serde_json::from_str::<CachedPage>(&cached)
+                        .map(|c| c.movies)
+                        .unwrap_or_default()
+                } else {
+                    let (popular, _) = search_archive("", 1, limit).await;
+                    popular
+                };
             let q_lower = query.to_lowercase();
             all = popular
                 .into_iter()
@@ -404,21 +443,26 @@ pub async fn search(
             eprintln!("[search] fallback: {} movies after filtering by title", all.len());
         }
 
-        // Enrich with OMDb data (rating + genre)
+        // Enrich with OMDb data (rating + genre). OMDb itself is cached per-title in Redis
+        // for 24h, so subsequent pages on the same query stay fast.
         for movie in &mut all {
             let (rating, genre) = get_omdb_data(&mut conn, &movie.title).await;
             movie.imdb_rating = rating;
             movie.genre = genre;
         }
 
-        // Cache results — use a shorter TTL for empty results so transient failures don't
-        // permanently block a query, but still serve subsequent calls from cache (fast).
+        // Cache the page payload. Empty results get a short TTL so transient external
+        // failures don't permanently mask a query.
         let ttl = if all.is_empty() { 300 } else { SEARCH_CACHE_TTL };
-        if let Ok(json_str) = serde_json::to_string(&all) {
+        let payload = CachedPage {
+            movies: all.clone(),
+            archive_total,
+        };
+        if let Ok(json_str) = serde_json::to_string(&payload) {
             redis_set(&mut conn, &cache_key, &json_str, ttl).await;
         }
 
-        all
+        (all, archive_total)
     };
 
     // Inject watched status per user (never cached because it's user-specific).
@@ -444,21 +488,29 @@ pub async fn search(
         }
     }
 
-    let total  = movies.len();
-    let offset = ((page - 1) * limit) as usize;
-    let page_movies: Vec<Movie> = movies.into_iter().skip(offset).take(limit as usize).collect();
-    let has_next = offset + page_movies.len() < total;
+    // `has_next` is true whenever Archive.org reports more matches than we've
+    // already covered through the pages so far. We use `page * limit` as an
+    // upper bound on what we've shown from Archive — it's conservative on page 1
+    // (where some PDT items took some of the slots) but is correct in the sense
+    // that if it's true, there are still Archive items left to show.
+    let archive_offset_after_this_page = (page as u64) * (limit as u64);
+    let has_next = archive_total > archive_offset_after_this_page;
+
+    // `total` is the user-visible total: PDT only contributes on page 1, but
+    // it's a small number; reporting `archive_total` alone is accurate enough
+    // for clients (the frontend uses `has_next` for the infinite-scroll trigger).
+    let total = archive_total as usize;
 
     eprintln!(
-        "[search] response total={} offset={} returning {} movies has_next={}",
-        total,
-        offset,
-        page_movies.len(),
+        "[search] response page={} returning {} movies archive_total={} has_next={}",
+        page,
+        movies.len(),
+        archive_total,
         has_next
     );
 
     Ok(Json(json!(SearchResponse {
-        movies: page_movies,
+        movies,
         page,
         limit,
         total,
